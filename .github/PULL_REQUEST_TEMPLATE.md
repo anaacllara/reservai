@@ -36,8 +36,6 @@ assignees: ''
 ## Revisao
 
 Este PR precisa de pelo menos uma aprovacao de outro integrante antes do merge.
-**Additional context**
-Add any other context or screenshots about the feature request here.
 
 **Contexto Adicional**
 Adicione qualquer contexto ou screenshots sobre a feature requerida.
