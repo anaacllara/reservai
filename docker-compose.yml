@@ -1,0 +1,70 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  cassandra:
+    image: cassandra:5.0
+    ports:
+      - "9042:9042"
+    environment:
+      # Nó único para desenvolvimento; em produção o Marco 1 prevê RF=3.
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+      CASSANDRA_CLUSTER_NAME: reservai
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  # Aplica o schema CQL assim que o Cassandra fica saudável e encerra.
+  cassandra-init:
+    image: cassandra:5.0
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./schema/cassandra.cql:/schema/cassandra.cql:ro
+    entrypoint: ["cqlsh", "cassandra", "-f", "/schema/cassandra.cql"]
+    restart: "no"
+
+  mongo:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+      # Executado apenas na primeira inicialização (volume vazio).
+      - ./schema/mongo-seed.js:/docker-entrypoint-initdb.d/seed.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      RESERVAI_REDIS_URL: redis://redis:6379/0
+      RESERVAI_CASSANDRA_HOSTS: cassandra
+      RESERVAI_MONGO_URL: mongodb://mongo:27017
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
+
+volumes:
+  cassandra-data:
+  mongo-data:

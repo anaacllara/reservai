@@ -1,0 +1,8 @@
+# Dependências dos testes unitários: não precisam de Cassandra nem de Mongo rodando.
+fastapi==0.115.6
+pydantic-settings==2.7.1
+redis==5.2.1
+tzdata==2024.2
+fakeredis[lua]==2.26.2
+httpx==0.28.1
+pytest==8.3.4
