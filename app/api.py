@@ -1,3 +1,4 @@
+import re
 import secrets
 from dataclasses import asdict
 from datetime import date, datetime, time
@@ -16,7 +17,7 @@ from app.auth import (
     localizar_usuario,
     obter_usuario_autenticado,
 )
-from app.dominio import CatalogoEspacos, Reserva
+from app.dominio import CatalogoEspacos, FiltroEspacos, Reserva
 from app.servicos import ServicoReservas
 
 router = APIRouter()
@@ -132,9 +133,33 @@ def logout(
 # ---- catálogo (MongoDB) ------------------------------------------------
 
 
+# Nome de atributo: impede que um "recurso" vire operador do Mongo (ex.: "$where") ou caminho aninhado.
+_NOME_ATRIBUTO = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
+
+
 @router.get("/espacos")
-def listar_espacos(unidade_id: int | None = None, cat: CatalogoEspacos = Depends(catalogo)):
-    return [asdict(e) for e in cat.listar(unidade_id)]
+def buscar_espacos(
+    unidade_id: int | None = None,
+    tipo: str | None = Query(None, examples=["sala_reuniao"]),
+    capacidade_min: int | None = Query(None, ge=1, description="Só espaços que declaram capacidade"),
+    modalidade: str | None = Query(None, examples=["futsal"]),
+    recursos: list[str] = Query(
+        [], description="Atributos booleanos exigidos, ex.: recursos=videoconferencia&recursos=projetor"
+    ),
+    cat: CatalogoEspacos = Depends(catalogo),
+):
+    """RF10: busca no catálogo por qualquer atributo, que varia conforme o tipo de espaço."""
+    invalidos = [r for r in recursos if not _NOME_ATRIBUTO.match(r)]
+    if invalidos:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Recurso inválido: {invalidos[0]!r}.")
+    filtro = FiltroEspacos(unidade_id, tipo, capacidade_min, modalidade, tuple(recursos))
+    return [asdict(e) for e in cat.buscar(filtro)]
+
+
+@router.get("/espacos/resumo")
+def resumo_catalogo(unidade_id: int | None = None, cat: CatalogoEspacos = Depends(catalogo)):
+    """RF11: espaços por unidade e tipo e modalidades oferecidas (aggregation pipeline com $facet)."""
+    return cat.resumo(unidade_id)
 
 
 @router.get("/espacos/{espaco_id}")
