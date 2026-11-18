@@ -1,4 +1,4 @@
-"""Nomes das chaves do Redis (Marco 1, seção 2.2)."""
+"""Nomes das chaves do Redis (Marco 1, seção 2.2 e Issue #12)."""
 
 from datetime import date, time
 
@@ -13,6 +13,10 @@ def disponibilidade(espaco_id: int, data: date) -> str:
 
 def reservas_ativas(usuario_id: int) -> str:
     return f"ativas:usuario:{usuario_id}"
+
+
+def sessao(token: str) -> str:
+    return f"sessao:{token}"
 
 
 def ranking(unidade_id: int) -> str:

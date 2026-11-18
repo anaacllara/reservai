@@ -75,3 +75,58 @@ class RepositorioFake:
     def reservas_da_unidade(self, unidade_id: int, ano_mes: str) -> list[Reserva]:
         itens = [r for (u, m, *_), r in self.por_unidade.items() if (u, m) == (unidade_id, ano_mes)]
         return sorted(itens, key=lambda r: (r.data, r.espaco_id, r.horario))
+
+
+class GrafoFake:
+    """Mesma semântica das consultas Cypher de app/repositorios/grafo.py, em Python.
+
+    Cada reserva é um "nó" que liga o dono, os participantes e o espaço (com o tipo).
+    """
+
+    def __init__(self):
+        self.reservas: dict = {}  # reserva_id -> (pessoas, espaco_id, tipo)
+        self.falhar = False
+
+    def _checar(self):
+        if self.falhar:
+            raise ConnectionError("Neo4j indisponível (simulado)")
+
+    def registrar_reserva(self, r: Reserva, espaco: Espaco) -> None:
+        self._checar()
+        self.reservas[r.reserva_id] = ({r.usuario_id, *r.participantes}, espaco.id, espaco.tipo)
+
+    def remover_reserva(self, r: Reserva) -> None:
+        self._checar()
+        self.reservas.pop(r.reserva_id, None)
+
+    def _espacos_de(self, usuario_id: int) -> set[int]:
+        return {e for pessoas, e, _ in self.reservas.values() if usuario_id in pessoas}
+
+    def _amigos_de(self, usuario_id: int, tipo: str | None = None) -> set[int]:
+        return {
+            p
+            for pessoas, _, t in self.reservas.values()
+            if usuario_id in pessoas and tipo in (None, t)
+            for p in pessoas
+        } - {usuario_id}
+
+    def recomendar_espacos(self, usuario_id: int, limite: int) -> list[tuple[int, int]]:
+        self._checar()
+        meus = self._espacos_de(usuario_id)
+        outros = {p for pessoas, e, _ in self.reservas.values() if e in meus for p in pessoas} - {usuario_id}
+        pontos: dict[int, set[int]] = {}
+        for outro in outros:
+            for e in self._espacos_de(outro) - meus:
+                pontos.setdefault(e, set()).add(outro)
+        ordenado = sorted(((e, len(p)) for e, p in pontos.items()), key=lambda x: (-x[1], x[0]))
+        return ordenado[:limite]
+
+    def sugerir_parceiros(self, usuario_id: int, tipo: str | None, limite: int) -> list[tuple[int, int]]:
+        self._checar()
+        amigos = self._amigos_de(usuario_id)
+        comum: dict[int, set[int]] = {}
+        for amigo in amigos:
+            for s in self._amigos_de(amigo, tipo) - amigos - {usuario_id}:
+                comum.setdefault(s, set()).add(amigo)
+        ordenado = sorted(((s, len(a)) for s, a in comum.items()), key=lambda x: (-x[1], x[0]))
+        return ordenado[:limite]

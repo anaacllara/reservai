@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timezone
 
 from cassandra import ConsistencyLevel
 from cassandra.cluster import Cluster, Session
-from cassandra.query import BatchStatement, BatchType, dict_factory
+from cassandra.query import UNSET_VALUE, BatchStatement, BatchType, dict_factory
 
 from app.config import Settings
 from app.dominio import Reserva
@@ -37,6 +37,15 @@ def _instante(valor: datetime | None) -> datetime | None:
     return valor.replace(tzinfo=timezone.utc) if valor else None
 
 
+def _participantes(r: Reserva):
+    # Coleção vazia vira UNSET: gravar None/{} criaria um tombstone a cada reserva sem participantes.
+    return set(r.participantes) if r.participantes else UNSET_VALUE
+
+
+def _de_participantes(valor) -> tuple[int, ...]:
+    return tuple(sorted(valor or ()))  # o driver devolve None para coleção vazia
+
+
 class RepositorioCassandra:
     def __init__(self, session: Session):
         self.s = session
@@ -44,8 +53,8 @@ class RepositorioCassandra:
 
         self._inserir_ocupacao = prep(
             "INSERT INTO reservas_por_espaco "
-            "(espaco_id, data_reserva, horario, reserva_id, usuario_id, unidade_id, criado_em) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS"
+            "(espaco_id, data_reserva, horario, reserva_id, usuario_id, unidade_id, criado_em, participantes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) IF NOT EXISTS"
         )
         self._remover_ocupacao = prep(
             "DELETE FROM reservas_por_espaco "
@@ -66,13 +75,13 @@ class RepositorioCassandra:
         )
         self._inserir_por_usuario = prep(
             "INSERT INTO reservas_por_usuario "
-            "(usuario_id, data_reserva, horario, reserva_id, espaco_id, unidade_id, status, criado_em) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "(usuario_id, data_reserva, horario, reserva_id, espaco_id, unidade_id, status, criado_em, "
+            "participantes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         self._inserir_por_unidade = prep(
             "INSERT INTO reservas_por_unidade "
-            "(unidade_id, ano_mes, data_reserva, espaco_id, horario, reserva_id, usuario_id, status) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "(unidade_id, ano_mes, data_reserva, espaco_id, horario, reserva_id, usuario_id, status, "
+            "participantes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         self._cancelar_por_usuario = prep(
             "UPDATE reservas_por_usuario SET status = 'cancelada' "
@@ -95,7 +104,10 @@ class RepositorioCassandra:
     def inserir_ocupacao(self, r: Reserva) -> bool:
         resultado = self.s.execute(
             self._inserir_ocupacao,
-            (r.espaco_id, r.data, r.horario, r.reserva_id, r.usuario_id, r.unidade_id, r.criado_em),
+            (
+                r.espaco_id, r.data, r.horario, r.reserva_id, r.usuario_id, r.unidade_id, r.criado_em,
+                _participantes(r),
+            ),
         )
         return resultado.was_applied
 
@@ -119,11 +131,17 @@ class RepositorioCassandra:
         batch = BatchStatement(batch_type=BatchType.LOGGED)
         batch.add(
             self._inserir_por_usuario,
-            (r.usuario_id, r.data, r.horario, r.reserva_id, r.espaco_id, r.unidade_id, r.status, r.criado_em),
+            (
+                r.usuario_id, r.data, r.horario, r.reserva_id, r.espaco_id, r.unidade_id, r.status, r.criado_em,
+                _participantes(r),
+            ),
         )
         batch.add(
             self._inserir_por_unidade,
-            (r.unidade_id, r.ano_mes, r.data, r.espaco_id, r.horario, r.reserva_id, r.usuario_id, r.status),
+            (
+                r.unidade_id, r.ano_mes, r.data, r.espaco_id, r.horario, r.reserva_id, r.usuario_id, r.status,
+                _participantes(r),
+            ),
         )
         self.s.execute(batch)
 
@@ -155,6 +173,7 @@ class RepositorioCassandra:
             horario=_hora(l["horario"]),
             status="ativa",
             criado_em=_instante(l["criado_em"]),
+            participantes=_de_participantes(l.get("participantes")),
         )
 
     @staticmethod
@@ -168,4 +187,5 @@ class RepositorioCassandra:
             horario=_hora(l["horario"]),
             status=l["status"],
             criado_em=_instante(l.get("criado_em")),
+            participantes=_de_participantes(l.get("participantes")),
         )

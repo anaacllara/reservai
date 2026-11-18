@@ -9,6 +9,7 @@ Projeto incremental da disciplina **Bancos de Dados NoSQL** (CEUB), do grupo **N
 | Chave-Valor | Redis | Lock do slot, cache da grade, cota por usuário, ranking |
 | Wide-Column | Cassandra | Ocupação (LWT, que garante a unicidade) e históricos query-first |
 | Documentos | MongoDB | Catálogo de espaços, com atributos e regras por tipo |
+| Grafos | Neo4j | Participantes das reservas: recomendação de espaços e sugestão de parceiros |
 
 A especificação (requisitos, modelo de dados e fluxos) está em [`docs/marco1.md`](docs/marco1.md).
 
@@ -23,7 +24,11 @@ docker compose up -d --build
 O primeiro start do Cassandra leva cerca de 1 minuto. Quando terminar, abra a documentação interativa da API em
 **<http://localhost:8000/docs>**.
 
-Para zerar os bancos: `docker compose down -v`.
+Para zerar os bancos: `docker compose down -v`. Faça isso também se você subiu o projeto antes da
+coluna `participantes` existir no Cassandra (o schema só é criado em volume vazio).
+
+O Neo4j Browser fica em **<http://localhost:7474>** (usuário `neo4j`, senha `reservai-dev`), útil para
+mostrar o grafo na apresentação: `MATCH p=(:Usuario)-[]->(:Reserva)-[:EM]->(:Espaco) RETURN p LIMIT 50`.
 
 ## Demo: disputa por um slot
 
@@ -59,7 +64,7 @@ app/
   dominio.py          entidades, erros e interfaces dos repositórios
   chaves.py           nomes das chaves do Redis
   lua/                scripts atômicos do Redis
-  repositorios/       implementações reais: cassandra.py, mongo.py
+  repositorios/       implementações reais: cassandra.py, mongo.py, grafo.py (Neo4j)
 schema/               CQL do Cassandra e seed do Mongo
 scripts/              demo de concorrência
 tests/                testes unitários + fakes
