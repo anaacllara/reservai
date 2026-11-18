@@ -32,8 +32,14 @@ def main() -> None:
         antes = http.get("/metricas").json()
 
         def tentar(usuario_id: int) -> int:
-            corpo = {"usuario_id": usuario_id, "espaco_id": args.espaco, "data": args.data, "horario": args.horario}
-            return http.post("/reservas", json=corpo).status_code
+            login_resp = http.post("/auth/login", json={"usuario_id": usuario_id})
+            if login_resp.status_code != 200:
+                return login_resp.status_code
+            token = login_resp.json()["token"]
+            corpo = {"espaco_id": args.espaco, "data": args.data, "horario": args.horario}
+            return http.post(
+                "/reservas", json=corpo, headers={"Authorization": f"Bearer {token}"}
+            ).status_code
 
         usuarios = range(args.usuario_inicial, args.usuario_inicial + args.tentativas)
         inicio = time.perf_counter()
