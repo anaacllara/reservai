@@ -27,6 +27,8 @@ def main() -> None:
     p.add_argument("--horario", default="19:00")
     p.add_argument("--usuario-inicial", type=int, default=10_000)
     p.add_argument("--senha", default="senha123")  # senha de demonstração (app/auth.py)
+    # A Quadra Poliesportiva exige 6 jogadores (RN08): cada tentativa leva 5 participantes + o dono.
+    p.add_argument("--participantes", type=int, default=5)
     args = p.parse_args()
 
     with httpx.Client(base_url=args.url, timeout=30) as http:
@@ -37,7 +39,12 @@ def main() -> None:
             resp.raise_for_status()
             return resp.json()["token"]
 
-        corpo = {"espaco_id": args.espaco, "data": args.data, "horario": args.horario}
+        corpo = {
+            "espaco_id": args.espaco,
+            "data": args.data,
+            "horario": args.horario,
+            "participantes": list(range(9_000_001, 9_000_001 + args.participantes)),
+        }
 
         def tentar(token: str) -> int:
             return http.post("/reservas", json=corpo, headers={"Authorization": f"Bearer {token}"}).status_code
