@@ -46,13 +46,10 @@ class LoginOut(BaseModel):
 # ---- modelos de reservas -----------------------------------------------
 
 
-class SlotIn(BaseModel):
+class ReservaIn(BaseModel):
     espaco_id: int
     data: date
     horario: time
-
-
-class ReservaIn(SlotIn):
     # Outros usuários que vão usar o espaço junto. Alimentam o grafo (RF08, RF09).
     participantes: list[int] = Field(default_factory=list, max_length=100)
 
@@ -71,6 +68,33 @@ class ReservaOut(BaseModel):
     @classmethod
     def de(cls, r: Reserva) -> "ReservaOut":
         return cls(**asdict(r))
+
+
+# ---- modelos de relatório (RF05) ---------------------------------------
+
+
+class MetricasEspacoRelatorio(BaseModel):
+    espaco_id: int
+    nome: str
+    tipo: str
+    total_reservas: int
+    ativas: int
+    canceladas: int
+    taxa_cancelamento: float
+    slots_disponiveis_mes: int
+    taxa_ocupacao: float
+
+
+class RelatorioUnidadeOut(BaseModel):
+    unidade_id: int
+    ano_mes: str
+    total_reservas: int
+    total_ativas: int
+    total_canceladas: int
+    taxa_cancelamento_unidade: float
+    taxa_ocupacao_unidade: float
+    espacos: list[MetricasEspacoRelatorio]
+    reservas: list[ReservaOut]
 
 
 @router.get("/health")
@@ -139,14 +163,20 @@ def reservar(
     )
 
 
-@router.post("/reservas/cancelar", response_model=ReservaOut)
+@router.delete(
+    "/espacos/{espaco_id}/reservas/{data}/{horario}",
+    response_model=ReservaOut,
+    summary="RF03: Cancelar reserva liberando o horário",
+)
 def cancelar(
-    slot: SlotIn,
+    espaco_id: int,
+    data: date,
+    horario: time,
     usuario: UsuarioSessao = Depends(obter_usuario_autenticado),
     svc: ServicoReservas = Depends(servico),
 ):
-    """RF03: cancela e libera o horário."""
-    return ReservaOut.de(svc.cancelar(usuario.usuario_id, slot.espaco_id, slot.data, slot.horario))
+    """RF03: cancela e libera o horário (LWT condicional no Cassandra, cota devolvida e grafo limpo)."""
+    return ReservaOut.de(svc.cancelar(usuario.usuario_id, espaco_id, data, horario))
 
 
 @router.get("/usuarios/{usuario_id}/reservas", response_model=list[ReservaOut])
@@ -187,14 +217,29 @@ def parceiros(
 # ---- painel administrativo -------------------------------------------
 
 
-@router.get("/unidades/{unidade_id}/relatorio", response_model=list[ReservaOut])
+@router.get(
+    "/unidades/{unidade_id}/relatorio",
+    response_model=RelatorioUnidadeOut,
+    summary="RF05: reservas da unidade no mês com métricas de ocupação e cancelamento por espaço",
+)
 def relatorio_unidade(
     unidade_id: int,
     mes: str = Query(..., pattern=r"^\d{4}-\d{2}$", examples=["2026-10"]),
     svc: ServicoReservas = Depends(servico),
 ):
-    """RF05: reservas (ativas e canceladas) da unidade no mês, em uma única partição."""
-    return [ReservaOut.de(r) for r in svc.ocupacao_unidade(unidade_id, mes)]
+    """RF05: reservas da unidade no mês com agregação de taxa de ocupação e cancelamento por espaço."""
+    rel = svc.relatorio_unidade(unidade_id, mes)
+    return RelatorioUnidadeOut(
+        unidade_id=rel.unidade_id,
+        ano_mes=rel.ano_mes,
+        total_reservas=rel.total_reservas,
+        total_ativas=rel.total_ativas,
+        total_canceladas=rel.total_canceladas,
+        taxa_cancelamento_unidade=rel.taxa_cancelamento_unidade,
+        taxa_ocupacao_unidade=rel.taxa_ocupacao_unidade,
+        espacos=[MetricasEspacoRelatorio(**asdict(e)) for e in rel.espacos],
+        reservas=[ReservaOut.de(r) for r in rel.reservas],
+    )
 
 
 @router.get("/unidades/{unidade_id}/ranking")
