@@ -11,9 +11,9 @@ sharding e replicação) está no PDF e será revisada na documentação final d
 |------|-----------|------------------------|
 | RF01 | Grade de disponibilidade do dia em tempo quase real | `ServicoReservas.grade`, `GET /espacos/{id}/disponibilidade` |
 | RF02 | Reservar um slot, sem que dois usuários fiquem com o mesmo (espaço, data, horário) | `ServicoReservas.reservar`, `POST /reservas` |
-| RF03 | Cancelar uma reserva, liberando o horário | `ServicoReservas.cancelar`, `POST /reservas/cancelar` |
+| RF03 | Cancelar uma reserva, liberando o horário | `ServicoReservas.cancelar`, `DELETE /espacos/{id}/reservas/{data}/{horario}` |
 | RF04 | Histórico de reservas por usuário | `GET /usuarios/{id}/reservas` |
-| RF05 | Histórico de reservas por unidade (painel administrativo) | `GET /unidades/{id}/relatorio?mes=AAAA-MM` |
+| RF05 | Histórico e relatório de reservas por unidade com taxas de ocupação e cancelamento por espaço | `ServicoReservas.relatorio_unidade`, `GET /unidades/{id}/relatorio?mes=AAAA-MM` |
 | RF06 | No máximo 2 reservas futuras ativas por usuário | script `app/lua/reservar_cota.lua` |
 | RF07 | Ranking dos espaços mais reservados por unidade | `GET /unidades/{id}/ranking` |
 | RF08 | Recomendar espaços usados por quem divide espaços com o usuário (Marco 2) | `GET /usuarios/{id}/recomendacoes` |
@@ -94,11 +94,12 @@ Implementação em [`app/repositorios/grafo.py`](../app/repositorios/grafo.py).
 6. Neo4j: projeta a reserva no grafo, em segundo plano, depois de liberar o lock (não alonga a disputa pelo slot).
 
 ### Cancelamento (RF03)
-1. Cassandra: lê a ocupação com `SERIAL`. A leitura é necessária porque o `reserva_id` faz parte da PK do histórico.
-2. Cassandra: `DELETE ... IF usuario_id = ? AND reserva_id = ?`.
-3. Cassandra: BATCH logged com `status = 'cancelada'` nas duas tabelas de histórico.
-4. Redis: `ZREM` na cota e marca o slot como `livre` no cache.
-5. Neo4j: remove o nó da reserva, em segundo plano.
+1. Autenticação: o cliente envia `DELETE /espacos/{espaco_id}/reservas/{data}/{horario}` com `Authorization: Bearer <token>`. O `usuario_id` é extraído exclusivamente da sessão do Redis.
+2. Cassandra: lê a ocupação com `SERIAL`. A leitura é necessária porque o `reserva_id` faz parte da PK do histórico.
+3. Cassandra: `DELETE ... IF usuario_id = ? AND reserva_id = ?` (garante RN04: só o dono cancela).
+4. Cassandra: BATCH logged com `status = 'cancelada'` nas duas tabelas de histórico (`reservas_por_usuario` e `reservas_por_unidade`).
+5. Redis: `ZREM` na cota e marca o slot como `livre` no cache.
+6. Neo4j: remove o nó da reserva, em segundo plano.
 
 ## 5. Correções em relação ao PDF do Marco 1
 

@@ -214,3 +214,36 @@ def test_ranking_por_unidade(servico):
     servico.reservar(4, 7, AMANHA, time(8))  # outra unidade
     assert servico.ranking(1) == [(1, 2), (3, 1)]
     assert servico.ranking(3) == [(7, 1)]
+
+
+def test_relatorio_unidade_calcula_ocupacao_e_cancelamento_por_espaco(servico):
+    # Unidade 1 tem espaço 1 e espaço 3 (ambos funcionam das 8h às 20h = 12 slots/dia)
+    # Outubro/2026 tem 31 dias -> 12 * 31 = 372 slots disponíveis por espaço no mês.
+    r1 = servico.reservar(842, 1, AMANHA, time(8))
+    r2 = servico.reservar(842, 1, AMANHA, time(9))
+    servico.cancelar(842, 1, AMANHA, time(9))
+
+    rel = servico.relatorio_unidade(1, "2026-10")
+    assert rel.unidade_id == 1
+    assert rel.ano_mes == "2026-10"
+    assert rel.total_reservas == 2
+    assert rel.total_ativas == 1
+    assert rel.total_canceladas == 1
+    assert rel.taxa_cancelamento_unidade == 0.5
+    assert rel.taxa_ocupacao_unidade == round(1 / (372 + 372), 4)
+
+    espaco_1 = next(e for e in rel.espacos if e.espaco_id == 1)
+    assert espaco_1.total_reservas == 2
+    assert espaco_1.ativas == 1
+    assert espaco_1.canceladas == 1
+    assert espaco_1.taxa_cancelamento == 0.5
+    assert espaco_1.slots_disponiveis_mes == 372
+    assert espaco_1.taxa_ocupacao == round(1 / 372, 4)
+
+    espaco_3 = next(e for e in rel.espacos if e.espaco_id == 3)
+    assert espaco_3.total_reservas == 0
+    assert espaco_3.ativas == 0
+    assert espaco_3.canceladas == 0
+    assert espaco_3.taxa_cancelamento == 0.0
+    assert espaco_3.slots_disponiveis_mes == 372
+    assert espaco_3.taxa_ocupacao == 0.0

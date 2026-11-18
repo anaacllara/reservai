@@ -56,16 +56,36 @@ def test_horario_invalido_retorna_422(client):
 def test_cancelar(client):
     headers = auth(client, 842)
     client.post("/reservas", json=SLOT, headers=headers)
-    resp = client.post("/reservas/cancelar", json=SLOT, headers=headers)
+
+    url_cancelar = f"/espacos/{SLOT['espaco_id']}/reservas/{SLOT['data']}/{SLOT['horario']}"
+    resp = client.delete(url_cancelar, headers=headers)
     assert resp.status_code == 200
     assert resp.json()["status"] == "cancelada"
-    assert client.post("/reservas/cancelar", json=SLOT, headers=headers).status_code == 404
+    assert client.delete(url_cancelar, headers=headers).status_code == 404
 
 
 def test_painel_da_unidade_e_ranking(client):
     client.post("/reservas", json=SLOT, headers=auth(client, 842))
     relatorio = client.get("/unidades/1/relatorio", params={"mes": "2026-10"}).json()
-    assert len(relatorio) == 1
+
+    assert relatorio["unidade_id"] == 1
+    assert relatorio["ano_mes"] == "2026-10"
+    assert relatorio["total_reservas"] == 1
+    assert relatorio["total_ativas"] == 1
+    assert relatorio["total_canceladas"] == 0
+    assert relatorio["taxa_ocupacao_unidade"] > 0
+    assert relatorio["taxa_cancelamento_unidade"] == 0.0
+
+    # Na unidade 1 há 2 espaços configurados no conftest (1: quadra, 3: sala de estudo)
+    assert len(relatorio["espacos"]) == 2
+    espaco_1 = next(e for e in relatorio["espacos"] if e["espaco_id"] == 1)
+    assert espaco_1["total_reservas"] == 1
+    assert espaco_1["ativas"] == 1
+    assert espaco_1["canceladas"] == 0
+    assert espaco_1["taxa_ocupacao"] > 0
+    assert espaco_1["taxa_cancelamento"] == 0.0
+    assert len(relatorio["reservas"]) == 1
+
     assert client.get("/unidades/1/ranking").json() == [{"espaco_id": 1, "reservas": 1}]
     assert client.get("/unidades/1/relatorio", params={"mes": "out/26"}).status_code == 422
 
@@ -125,7 +145,7 @@ def test_requisicao_sem_token_retorna_401(client):
     assert resp_reserva.status_code == 401
     assert resp_reserva.headers.get("WWW-Authenticate") == "Bearer"
 
-    resp_cancela = client.post("/reservas/cancelar", json=SLOT)
+    resp_cancela = client.delete(f"/espacos/{SLOT['espaco_id']}/reservas/{SLOT['data']}/{SLOT['horario']}")
     assert resp_cancela.status_code == 401
 
 
@@ -153,8 +173,9 @@ def test_usuario_a_nao_consegue_cancelar_reserva_do_usuario_b(client, repo):
     client.post("/reservas", json=SLOT, headers=auth(client, 842))
     assert repo.obter_ocupacao(1, data_reserva, horario_reserva) is not None
 
-    # Usuário 900 tenta cancelar a reserva de 842 (RN04)
-    resp = client.post("/reservas/cancelar", json=SLOT, headers=auth(client, 900))
+    # Usuário 900 tenta cancelar a reserva de 842 via DELETE (RN04)
+    url_cancelar = f"/espacos/{SLOT['espaco_id']}/reservas/{SLOT['data']}/{SLOT['horario']}"
+    resp = client.delete(url_cancelar, headers=auth(client, 900))
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Nenhuma reserva ativa sua neste horário."
 
