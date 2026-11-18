@@ -1,4 +1,10 @@
-"""Autenticação e gerenciamento de sessão no Redis (Issue #12)."""
+"""Autenticação e gerenciamento de sessão no Redis (Issue #12).
+
+Autenticação de DEMONSTRAÇÃO: não há cadastro de usuários nem hash de senha. Todos os
+usuários usam SENHA_PADRAO, e qualquer usuario_id positivo é aceito (o script de disputa
+simula centenas de usuários). O que a camada demonstra é a sessão no Redis (Hash com TTL
+renovado a cada uso) e o usuario_id vindo do token, nunca do corpo da requisição.
+"""
 
 import secrets
 from dataclasses import dataclass
@@ -13,6 +19,7 @@ from app import chaves
 _bearer = HTTPBearer(auto_error=False)
 
 USUARIOS_SEED: dict[int, dict[str, Any]] = {
+    1: {"nome": "Administração", "email": "admin@ceub.edu.br", "perfil": "admin"},
     842: {"nome": "Mariana Sena", "email": "842@ceub.edu.br", "perfil": "aluno"},
     843: {"nome": "Lucas Prado", "email": "843@ceub.edu.br", "perfil": "aluno"},
     900: {"nome": "Carlos Silva", "email": "900@ceub.edu.br", "perfil": "aluno"},
@@ -109,3 +116,15 @@ def obter_usuario_autenticado(
         )
     return usuario
 
+
+def exigir_admin(usuario: UsuarioSessao = Depends(obter_usuario_autenticado)) -> UsuarioSessao:
+    """Painel administrativo (RF05): só o perfil admin."""
+    if usuario.perfil != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Acesso restrito à administração.")
+    return usuario
+
+
+def exigir_proprio_usuario(usuario: UsuarioSessao, usuario_id: int) -> None:
+    """Histórico, recomendações e parceiros são dados pessoais: só o próprio usuário (ou admin)."""
+    if usuario.usuario_id != usuario_id and usuario.perfil != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Você só pode consultar os seus próprios dados.")

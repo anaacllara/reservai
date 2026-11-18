@@ -1,3 +1,4 @@
+import secrets
 from dataclasses import asdict
 from datetime import date, datetime, time
 from uuid import UUID
@@ -10,6 +11,8 @@ from app.auth import (
     UsuarioSessao,
     criar_sessao,
     encerrar_sessao,
+    exigir_admin,
+    exigir_proprio_usuario,
     localizar_usuario,
     obter_usuario_autenticado,
 )
@@ -33,7 +36,7 @@ def catalogo(request: Request) -> CatalogoEspacos:
 class LoginIn(BaseModel):
     usuario_id: int | None = None
     email: str | None = None
-    senha: str = SENHA_PADRAO
+    senha: str  # obrigatória (autenticação de demonstração: ver app/auth.py)
 
 
 class LoginOut(BaseModel):
@@ -108,7 +111,7 @@ def health():
 @router.post("/auth/login", response_model=LoginOut)
 def login(dados: LoginIn, svc: ServicoReservas = Depends(servico)):
     usuario = localizar_usuario(dados.usuario_id, dados.email)
-    if usuario is None or dados.senha != SENHA_PADRAO:
+    if usuario is None or not secrets.compare_digest(dados.senha, SENHA_PADRAO):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Credenciais inválidas.")
     token = criar_sessao(svc.redis, usuario, svc.cfg.sessao_ttl_s)
     return LoginOut(token=token, usuario_id=usuario["usuario_id"], nome=usuario["nome"])
@@ -181,9 +184,13 @@ def cancelar(
 
 @router.get("/usuarios/{usuario_id}/reservas", response_model=list[ReservaOut])
 def reservas_do_usuario(
-    usuario_id: int, limite: int = Query(50, ge=1, le=500), svc: ServicoReservas = Depends(servico)
+    usuario_id: int,
+    limite: int = Query(50, ge=1, le=500),
+    usuario: UsuarioSessao = Depends(obter_usuario_autenticado),
+    svc: ServicoReservas = Depends(servico),
 ):
-    """RF04: histórico do usuário, das mais recentes às mais antigas."""
+    """RF04: histórico do usuário, das mais recentes às mais antigas (só o próprio usuário ou admin)."""
+    exigir_proprio_usuario(usuario, usuario_id)
     return [ReservaOut.de(r) for r in svc.historico_usuario(usuario_id, limite)]
 
 
@@ -192,9 +199,13 @@ def reservas_do_usuario(
 
 @router.get("/usuarios/{usuario_id}/recomendacoes")
 def recomendacoes(
-    usuario_id: int, limite: int = Query(5, ge=1, le=50), svc: ServicoReservas = Depends(servico)
+    usuario_id: int,
+    limite: int = Query(5, ge=1, le=50),
+    usuario: UsuarioSessao = Depends(obter_usuario_autenticado),
+    svc: ServicoReservas = Depends(servico),
 ):
     """RF08: espaços usados por quem divide espaços com o usuário e que ele ainda não usou."""
+    exigir_proprio_usuario(usuario, usuario_id)
     return [
         {"espaco_id": e.id, "nome": e.nome, "tipo": e.tipo, "unidade_id": e.unidade_id, "pessoas_em_comum": n}
         for e, n in svc.recomendacoes(usuario_id, limite)
@@ -206,9 +217,11 @@ def parceiros(
     usuario_id: int,
     tipo: str | None = Query(None, examples=["quadra"]),
     limite: int = Query(5, ge=1, le=50),
+    usuario: UsuarioSessao = Depends(obter_usuario_autenticado),
     svc: ServicoReservas = Depends(servico),
 ):
     """RF09: amigos de amigos com quem o usuário nunca dividiu um espaço (opcionalmente por tipo)."""
+    exigir_proprio_usuario(usuario, usuario_id)
     return [
         {"usuario_id": u, "amigos_em_comum": n} for u, n in svc.parceiros(usuario_id, tipo, limite)
     ]
@@ -225,9 +238,14 @@ def parceiros(
 def relatorio_unidade(
     unidade_id: int,
     mes: str = Query(..., pattern=r"^\d{4}-\d{2}$", examples=["2026-10"]),
+    _admin: UsuarioSessao = Depends(exigir_admin),
     svc: ServicoReservas = Depends(servico),
 ):
-    """RF05: reservas da unidade no mês com agregação de taxa de ocupação e cancelamento por espaço."""
+    """RF05: reservas da unidade no mês com agregação de taxa de ocupação e cancelamento por espaço.
+
+    Restrito ao perfil admin. A taxa de ocupação usa todos os slots do mês como denominador,
+    inclusive dias que ainda não abriram na agenda: num mês em andamento ela aparece mais baixa.
+    """
     rel = svc.relatorio_unidade(unidade_id, mes)
     return RelatorioUnidadeOut(
         unidade_id=rel.unidade_id,

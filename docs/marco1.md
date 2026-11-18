@@ -29,6 +29,7 @@ sharding e replicação) está no PDF e será revisada na documentação final d
 | RN04 | Só o dono cancela, e apenas antes do horário de início. |
 | RN05 | Reserva cancelada continua no histórico do usuário e da unidade com `status = 'cancelada'`. |
 | RN06 | Uma reserva pode ter até `max_participantes` (30) participantes além do dono. Duplicatas e o próprio dono são ignorados. Participantes não consomem a cota (RN03 vale só para o dono). |
+| RN07 | Controle de acesso: reservar e cancelar exigem sessão (`Authorization: Bearer`), e o `usuario_id` vem sempre do token. Histórico, recomendações e parceiros (RF04, RF08, RF09) só podem ser consultados pelo próprio usuário ou pelo perfil `admin` (**403** caso contrário). O relatório da unidade (RF05) é restrito ao `admin`. Disponibilidade, catálogo e ranking são públicos (não expõem dados pessoais). |
 
 ## 3. Modelo de dados
 
