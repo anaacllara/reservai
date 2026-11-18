@@ -79,3 +79,21 @@ sala de reunião), o que justifica o esquema flexível. Seed em [`schema/mongo-s
 4. **Seção 3.6**: `criado_em` não é clustering column em nenhuma tabela. As clustering columns são `horario`, `data_reserva` e `reserva_id`.
 5. **Pág. 12**: o texto entre o fim da seção 3.5 e o título da 3.6 está corrompido no PDF.
 6. **A cache só é atualizada se já existir**, para não criar uma grade parcial que esconderia os outros slots.
+7. **Diagrama da pág. 4, passo 5**: o painel administrativo lê com `ONE`, não com `QUORUM`.
+   O diagrama contradizia as seções 3.2 e 3.4 do próprio PDF (painel = AP). O código segue
+   `ONE` (`app/repositorios/cassandra.py`, consistência padrão da sessão).
+8. **São três consultas, não duas.** As seções 2.3, 3.1 e 3.6 falam nas "duas perguntas que o
+   sistema mais faz", mas a modelagem tem as consultas A, B e C. A seção 3.6 também deixa
+   `reservas_por_unidade` (consulta C, RF05) de fora.
+9. **Diagrama da pág. 4 cortado**: a última caixa (Redis, passo 4) aparece pela metade.
+
+## 6. Pendências para a documentação final (Marco 2)
+
+- Refazer o PDF já com as correções da seção 5 (principalmente a pág. 12, que está corrompida).
+- Atualizar a seção 1.1 do PDF: o catálogo de espaços, que era "fora de escopo", agora está no
+  MongoDB (seção 3.3 deste documento). Justificar a família Documentos no mesmo formato do
+  checklist (uso do modelo + técnica citada).
+- Incluir as famílias das unidades seguintes que entrarem no sistema (ex.: Grafos), com a
+  mesma estrutura de justificativa.
+- Atualizar a estimativa de volume se o escopo mudar (o MongoDB não altera as contas de reservas,
+  mas o catálogo deve aparecer na tabela).
