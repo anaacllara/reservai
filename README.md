@@ -21,8 +21,12 @@ Pré-requisito: Docker Desktop.
 docker compose up -d --build
 ```
 
-O primeiro start do Cassandra leva cerca de 1 minuto. Quando terminar, abra a documentação interativa da API em
-**<http://localhost:8000/docs>**.
+O primeiro start do Cassandra leva cerca de 1 minuto. Quando terminar:
+
+- **<http://localhost:8000>**: front da demo (buscar espaços, reservar, minhas reservas, recomendações e painel).
+  Cada bloco mostra qual banco respondeu (Redis, Cassandra, MongoDB ou Neo4j). Entre com qualquer usuário
+  (ex.: `842`) e a senha `senha123`; o usuário `1` é admin e vê o relatório mensal.
+- **<http://localhost:8000/docs>**: documentação interativa da API (Swagger).
 
 Para zerar os bancos: `docker compose down -v`. Faça isso também se você subiu o projeto antes da
 coluna `participantes` existir no Cassandra (o schema só é criado em volume vazio).
@@ -77,6 +81,7 @@ app/
   dominio.py          entidades, erros e interfaces dos repositórios
   chaves.py           nomes das chaves do Redis
   lua/                scripts atômicos do Redis
+  static/index.html   front da demo (HTML + JS puro, servido em /)
   repositorios/       implementações reais: cassandra.py, mongo.py, grafo.py (Neo4j)
 schema/               CQL do Cassandra e seed do Mongo
 scripts/              demo de concorrência

@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reservaí</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1d2433; --muted: #667085; --line: #e4e7ec;
+    --primary: #4f46e5; --primary-ink: #fff;
+    --livre: #e7f6ec; --livre-ink: #15803d; --ocupado: #fdecec; --ocupado-ink: #b42318;
+    --redis: #dc382d; --cassandra: #1287b1; --mongo: #13aa52; --neo4j: #018bff;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 20px; }
+  header h1 span { color: var(--primary); }
+  nav { display: flex; gap: 4px; }
+  nav button { background: none; border: 0; padding: 8px 12px; border-radius: 8px; cursor: pointer; color: var(--muted); font: inherit; }
+  nav button.ativo { background: #eef2ff; color: var(--primary); font-weight: 600; }
+  #sessao { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+  section.aba { display: none; } section.aba.ativa { display: block; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .linha { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+  label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 2px; }
+  input, select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  input[type=number] { width: 110px; }
+  button.btn { font: inherit; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--primary); background: var(--primary); color: var(--primary-ink); cursor: pointer; }
+  button.btn.sec { background: #fff; color: var(--primary); }
+  button.btn.perigo { border-color: var(--ocupado-ink); background: #fff; color: var(--ocupado-ink); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: #fff; }
+  .tag.redis { background: var(--redis); } .tag.cassandra { background: var(--cassandra); }
+  .tag.mongo { background: var(--mongo); } .tag.neo4j { background: var(--neo4j); }
+  .grid-espacos { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .espaco { border: 1px solid var(--line); border-radius: 8px; padding: 12px; cursor: pointer; background: #fff; }
+  .espaco:hover { border-color: var(--primary); }
+  .espaco.sel { border-color: var(--primary); box-shadow: 0 0 0 2px #c7d2fe; }
+  .espaco h3 { margin: 0 0 4px; font-size: 15px; }
+  .mini { font-size: 12px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .chip { font-size: 11px; background: #f2f4f7; border-radius: 4px; padding: 1px 6px; }
+  .chip.regra { background: #fff7ed; color: #9a3412; }
+  .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin-top: 12px; }
+  .slot { border: 0; border-radius: 8px; padding: 10px 0; font: inherit; font-weight: 600; cursor: pointer; }
+  .slot.livre { background: var(--livre); color: var(--livre-ink); }
+  .slot.ocupado { background: var(--ocupado); color: var(--ocupado-ink); cursor: not-allowed; }
+  .slot.escolhido { outline: 2px solid var(--primary); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .status-ativa { color: var(--livre-ink); } .status-cancelada { color: var(--muted); text-decoration: line-through; }
+  .vazio { color: var(--muted); font-style: italic; }
+  .duas { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .duas { grid-template-columns: 1fr; } }
+  #aviso { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 8px; color: #fff; display: none; max-width: 90vw; z-index: 10; }
+  #aviso.ok { background: #15803d; } #aviso.erro { background: #b42318; }
+  .metricas { display: flex; gap: 12px; flex-wrap: wrap; }
+  .metrica { background: #f9fafb; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; min-width: 120px; }
+  .metrica b { display: block; font-size: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Reserv<span>aí</span></h1>
+  <nav id="abas">
+    <button data-aba="reservar" class="ativo">Reservar</button>
+    <button data-aba="minhas">Minhas reservas</button>
+    <button data-aba="social">Para você</button>
+    <button data-aba="painel">Painel</button>
+  </nav>
+  <div id="sessao"></div>
+</header>
+
+<main>
+  <!-- ===== Reservar ===== -->
+  <section class="aba ativa" id="aba-reservar">
+    <div class="card">
+      <h2>Buscar espaços <span class="tag mongo">MongoDB · busca por atributos</span></h2>
+      <div class="linha">
+        <label>Unidade <select id="f-unidade"><option value="">Todas</option></select></label>
+        <label>Tipo
+          <select id="f-tipo">
+            <option value="">Todos</option><option value="quadra">Quadra</option>
+            <option value="sala_estudo">Sala de estudo</option><option value="sala_reuniao">Sala de reunião</option>
+          </select>
+        </label>
+        <label>Capacidade mínima <input type="number" id="f-capacidade" min="1" placeholder="—"></label>
+        <label>Modalidade <input id="f-modalidade" placeholder="ex.: futsal"></label>
+        <label>Recursos
+          <span class="linha" style="gap:10px;padding-top:4px">
+            <span><input type="checkbox" value="videoconferencia" class="f-recurso"> videoconferência</span>
+            <span><input type="checkbox" value="projetor" class="f-recurso"> projetor</span>
+            <span><input type="checkbox" value="coberta" class="f-recurso"> coberta</span>
+            <span><input type="checkbox" value="tv" class="f-recurso"> TV</span>
+          </span>
+        </label>
+        <button class="btn sec" id="btn-buscar">Buscar</button>
+      </div>
+      <div class="grid-espacos" id="lista-espacos" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card" id="card-grade" hidden>
+      <h2><span id="grade-titulo"></span> <span class="tag redis">Redis · cache da grade</span></h2>
+      <div class="linha">
+        <label>Data <input type="date" id="g-data"></label>
+        <label style="flex:1;min-width:220px">Participantes (ids, separados por vírgula)
+          <input id="g-participantes" placeholder="ex.: 900, 901, 902, 903, 904">
+        </label>
+        <button class="btn" id="btn-reservar" disabled>Reservar horário</button>
+      </div>
+      <div class="mini" id="g-regras" style="margin-top:8px"></div>
+      <div class="slots" id="g-slots"></div>
+      <p class="mini">A confirmação passa por lock no Redis, cota (Lua) e LWT no
+        <span class="tag cassandra">Cassandra</span>; depois a reserva é projetada no <span class="tag neo4j">Neo4j</span>.</p>
+    </div>
+  </section>
+
+  <!-- ===== Minhas reservas ===== -->
+  <section class="aba" id="aba-minhas">
+    <div class="card">
+      <h2>Minhas reservas <span class="tag cassandra">Cassandra · reservas_por_usuario</span></h2>
+      <div id="minhas"></div>
+    </div>
+  </section>
+
+  <!-- ===== Para você ===== -->
+  <section class="aba" id="aba-social">
+    <div class="duas">
+      <div class="card">
+        <h2>Espaços recomendados <span class="tag neo4j">Neo4j · 2 saltos</span></h2>
+        <p class="mini">Usados por quem divide espaços com você, e que você ainda não usou.</p>
+        <div id="recomendacoes"></div>
+      </div>
+      <div class="card">
+        <h2>Parceiros sugeridos <span class="tag neo4j">Neo4j · amigos de amigos</span></h2>
+        <div class="linha">
+          <label>Tipo de espaço
+            <select id="p-tipo"><option value="">Qualquer</option><option value="quadra">Quadra</option>
+              <option value="sala_estudo">Sala de estudo</option><option value="sala_reuniao">Sala de reunião</option></select>
+          </label>
+        </div>
+        <div id="parceiros" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Painel ===== -->
+  <section class="aba" id="aba-painel">
+    <div class="card">
+      <h2>Onde cada tentativa parou <span class="tag redis">Redis · contadores</span></h2>
+      <div class="metricas" id="metricas"></div>
+    </div>
+    <div class="duas">
+      <div class="card">
+        <h2>Ranking da unidade <span class="tag redis">Redis · sorted set</span></h2>
+        <label>Unidade <select id="r-unidade"></select></label>
+        <div id="ranking" style="margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <h2>Resumo do catálogo <span class="tag mongo">MongoDB · aggregation</span></h2>
+        <div id="resumo"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Relatório mensal <span class="tag cassandra">Cassandra · reservas_por_unidade</span>
+        <span class="mini">(perfil admin: entre com o usuário 1)</span></h2>
+      <div class="linha">
+        <label>Unidade <select id="rel-unidade"></select></label>
+        <label>Mês <input type="month" id="rel-mes"></label>
+        <button class="btn sec" id="btn-relatorio">Gerar</button>
+      </div>
+      <div id="relatorio" style="margin-top:12px"></div>
+    </div>
+  </section>
+</main>
+
+<div id="aviso"></div>
+
+<script>
+// ---------- utilitários ----------
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const hoje = () => new Date().toLocaleDateString("sv-SE");  // AAAA-MM-DD no fuso local
+const somaDias = (iso, n) => { const d = new Date(iso + "T12:00"); d.setDate(d.getDate() + n); return d.toLocaleDateString("sv-SE"); };
+const ROTULO_TIPO = { quadra: "Quadra", sala_estudo: "Sala de estudo", sala_reuniao: "Sala de reunião" };
+
+function aviso(msg, tipo = "ok") {
+  const el = $("#aviso"); el.textContent = msg; el.className = tipo; el.style.display = "block";
+  clearTimeout(aviso.t); aviso.t = setTimeout(() => (el.style.display = "none"), 4500);
+}
+
+const sessao = { get token() { return sessionStorage.getItem("token"); },
+                 get usuario() { return JSON.parse(sessionStorage.getItem("usuario") || "null"); } };
+
+async function api(caminho, opcoes = {}) {
+  const headers = { "Content-Type": "application/json", ...(opcoes.headers || {}) };
+  if (sessao.token) headers.Authorization = `Bearer ${sessao.token}`;
+  const resp = await fetch(caminho, { ...opcoes, headers });
+  const corpo = await resp.json().catch(() => ({}));
+  if (resp.status === 401 && sessao.token) { sair(false); }
+  if (!resp.ok) {
+    const d = corpo.detail;
+    throw new Error(typeof d === "string" ? d : Array.isArray(d) ? d.map((x) => x.msg).join("; ") : `Erro ${resp.status}`);
+  }
+  return corpo;
+}
+
+// ---------- sessão ----------
+function desenharSessao() {
+  const u = sessao.usuario, el = $("#sessao");
+  if (u) {
+    el.innerHTML = `<span>Olá, <b>${esc(u.nome)}</b> <span class="mini">(#${u.usuario_id})</span></span>
+                    <button class="btn sec" id="btn-sair">Sair</button>`;
+    $("#btn-sair").onclick = () => sair(true);
+  } else {
+    el.innerHTML = `<input type="number" id="l-usuario" placeholder="usuário (ex.: 842)" style="width:150px">
+                    <input type="password" id="l-senha" value="senha123" style="width:110px" aria-label="senha">
+                    <button class="btn" id="btn-entrar">Entrar</button> <span class="tag redis">sessão no Redis</span>`;
+    $("#btn-entrar").onclick = entrar;
+    $("#l-senha").onkeydown = (e) => e.key === "Enter" && entrar();
+  }
+}
+
+async function entrar() {
+  try {
+    const r = await api("/auth/login", { method: "POST", body: JSON.stringify({ usuario_id: Number($("#l-usuario").value), senha: $("#l-senha").value }) });
+    sessionStorage.setItem("token", r.token);
+    sessionStorage.setItem("usuario", JSON.stringify({ usuario_id: r.usuario_id, nome: r.nome }));
+    desenharSessao(); aviso(`Bem-vindo(a), ${r.nome}!`); recarregarAbaAtual();
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+async function sair(chamarApi) {
+  if (chamarApi) await api("/auth/logout", { method: "POST" }).catch(() => {});
+  sessionStorage.clear(); desenharSessao(); recarregarAbaAtual();
+}
+
+// ---------- abas ----------
+let abaAtual = "reservar";
+$("#abas").onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  document.querySelectorAll("#abas button").forEach((x) => x.classList.toggle("ativo", x === b));
+  document.querySelectorAll("section.aba").forEach((s) => s.classList.toggle("ativa", s.id === `aba-${b.dataset.aba}`));
+  abaAtual = b.dataset.aba; recarregarAbaAtual();
+};
+function recarregarAbaAtual() {
+  ({ reservar: () => {}, minhas: carregarMinhas, social: carregarSocial, painel: carregarPainel })[abaAtual]();
+}
+const precisaLogin = (el) => (el.innerHTML = `<p class="vazio">Entre com um usuário para ver esta parte.</p>`);
+
+// ---------- catálogo e reserva ----------
+let espacos = [], espacoSel = null, horarioSel = null;
+const nomeEspaco = (id) => (espacos.find((e) => e.id === id) || {}).nome || `Espaço ${id}`;
+
+async function buscarEspacos() {
+  const p = new URLSearchParams();
+  if ($("#f-unidade").value) p.set("unidade_id", $("#f-unidade").value);
+  if ($("#f-tipo").value) p.set("tipo", $("#f-tipo").value);
+  if ($("#f-capacidade").value) p.set("capacidade_min", $("#f-capacidade").value);
+  if ($("#f-modalidade").value.trim()) p.set("modalidade", $("#f-modalidade").value.trim());
+  document.querySelectorAll(".f-recurso:checked").forEach((c) => p.append("recursos", c.value));
+  try {
+    const lista = await api(`/espacos?${p}`);
+    $("#lista-espacos").innerHTML = lista.length ? lista.map(cartaoEspaco).join("") : `<p class="vazio">Nenhum espaço com esses filtros.</p>`;
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+function cartaoEspaco(e) {
+  const attrs = Object.entries(e.atributos).map(([k, v]) =>
+    `<span class="chip">${esc(k.replace(/_/g, " "))}: ${esc(Array.isArray(v) ? v.join(", ") : v === true ? "sim" : v === false ? "não" : v)}</span>`).join("");
+  const regras = e.regras.map((r) => `<span class="chip regra">${esc(r.descricao || r.tipo)}</span>`).join("");
+  return `<div class="espaco ${espacoSel?.id === e.id ? "sel" : ""}" data-id="${e.id}">
+    <h3>${esc(e.nome)}</h3>
+    <div class="mini">${esc(ROTULO_TIPO[e.tipo] || e.tipo)} · Unidade ${esc(e.unidade_id)} · ${e.abertura}h–${e.fechamento}h</div>
+    <div class="chips">${attrs}</div><div class="chips">${regras}</div></div>`;
+}
+
+$("#lista-espacos").onclick = (ev) => {
+  const c = ev.target.closest(".espaco"); if (!c) return;
+  espacoSel = espacos.find((e) => e.id === Number(c.dataset.id));
+  document.querySelectorAll(".espaco").forEach((x) => x.classList.toggle("sel", x === c));
+  $("#card-grade").hidden = false;
+  $("#grade-titulo").textContent = espacoSel.nome;
+  const min = espacoSel.regras.find((r) => r.tipo === "min_participantes");
+  const cap = espacoSel.atributos.capacidade;
+  $("#g-regras").textContent = [min && `Exige ${min.valor} pessoas contando você.`, cap && `Comporta até ${cap} pessoas.`].filter(Boolean).join(" ");
+  carregarGrade();
+  $("#card-grade").scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+async function carregarGrade() {
+  if (!espacoSel) return;
+  horarioSel = null; $("#btn-reservar").disabled = true;
+  const data = $("#g-data").value;
+  try {
+    const r = await api(`/espacos/${espacoSel.id}/disponibilidade?data=${data}`);
+    const agora = new Date();
+    $("#g-slots").innerHTML = Object.entries(r.grade).map(([h, estado]) => {
+      const passado = data === hoje() && Number(h.slice(0, 2)) <= agora.getHours();
+      const ocupado = estado === "ocupado" || passado;
+      return `<button class="slot ${ocupado ? "ocupado" : "livre"}" data-h="${h}" ${ocupado ? "disabled" : ""}
+               title="${passado ? "já passou" : estado}">${h}</button>`;
+    }).join("");
+  } catch (e) { aviso(e.message, "erro"); }
+}
+
+$("#g-slots").onclick = (ev) => {
+  const s = ev.target.closest(".slot.livre"); if (!s) return;
+  horarioSel = s.dataset.h;
+  document.querySelectorAll(".slot").forEach((x) => x.classList.toggle("escolhido", x === s));
+  $("#btn-reservar").disabled = false;
+};
+
+$("#btn-reservar").onclick = async () => {
+  if (!sessao.token) return aviso("Entre com um usuário para reservar.", "erro");
+  const participantes = $("#g-participantes").value.split(/[\s,;]+/).filter(Boolean).map(Number).filter(Number.isInteger);
+  try {
+    await api("/reservas", { method: "POST", body: JSON.stringify({ espaco_id: espacoSel.id, data: $("#g-data").value, horario: horarioSel, participantes }) });
+    aviso(`Reservado: ${espacoSel.nome}, ${$("#g-data").value} às ${horarioSel}.`);
+  } catch (e) { aviso(e.message, "erro"); }
+  carregarGrade();
+};
+
+// ---------- minhas reservas ----------
+async function carregarMinhas() {
+  const el = $("#minhas"), u = sessao.usuario; if (!u) return precisaLogin(el);
+  try {
+    const lista = await api(`/usuarios/${u.usuario_id}/reservas`);
+    if (!lista.length) return (el.innerHTML = `<p class="vazio">Você ainda não tem reservas.</p>`);
+    const agora = new Date();
+    el.innerHTML = `<table><tr><th>Data</th><th>Horário</th><th>Espaço</th><th>Participantes</th><th>Status</th><th></th></tr>${
+      lista.map((r) => {
+        const h = r.horario.slice(0, 5), futura = new Date(`${r.data}T${h}`) > agora;
+        const podeCancelar = r.status === "ativa" && futura;
+        return `<tr><td>${esc(r.data)}</td><td>${esc(h)}</td><td>${esc(nomeEspaco(r.espaco_id))}</td>
+          <td class="mini">${r.participantes.length ? esc(r.participantes.join(", ")) : "—"}</td>
+          <td class="status-${esc(r.status)}">${esc(r.status)}</td>
+          <td>${podeCancelar ? `<button class="btn perigo" data-cancelar="${r.espaco_id}|${esc(r.data)}|${esc(h)}">Cancelar</button>` : ""}</td></tr>`;
+      }).join("")}</table>`;
+  } catch (e) { el.innerHTML = `<p class="vazio">${esc(e.message)}</p>`; }
+}
+
+$("#minhas").onclick = async (ev) => {
+  const b = ev.target.closest("[data-cancelar]"); if (!b) return;
+  const [espaco, data, h] = b.dataset.cancelar.split("|");
+  try { await api(`/espacos/${espaco}/reservas/${data}/${h}`, { method: "DELETE" }); aviso("Reserva cancelada e horário liberado."); }
+  catch (e) { aviso(e.message, "erro"); }
+  carregarMinhas();
+};
+
+// ---------- grafo ----------
+async function carregarSocial() {
+  const u = sessao.usuario;
+  if (!u) { precisaLogin($("#recomendacoes")); return precisaLogin($("#parceiros")); }
+  try {
+    const recs = await api(`/usuarios/${u.usuario_id}/recomendacoes`);
+    $("#recomendacoes").innerHTML = recs.length
+      ? `<table><tr><th>Espaço</th><th>Tipo</th><th>Pessoas em comum</th></tr>${recs.map((r) =>
+          `<tr><td>${esc(r.nome)}</td><td>${esc(ROTULO_TIPO[r.tipo] || r.tipo)}</td><td>${r.pessoas_em_comum}</td></tr>`).join("")}</table>`
+      : `<p class="vazio">Sem recomendações ainda: reserve espaços com participantes para formar o grafo.</p>`;
+  } catch (e) { $("#recomendacoes").innerHTML = `<p class="vazio">${esc(e.message)}</p>`; }
+  carregarParceiros();
+}
+
+async function carregarParceiros() {
+  const u = sessao.usuario; if (!u) return;
+  const tipo = $("#p-tipo").value;
+  try {
+    const ps = await api(`/usuarios/${u.usuario_id}/parceiros${tipo ? `?tipo=${tipo}` : ""}`);
+    $("#parceiros").innerHTML = ps.length
+      ? `<table><tr><th>Usuário</th><th>Amigos em comum</th></tr>${ps.map((p) =>
+          `<tr><td>#${p.usuario_id}</td><td>${p.amigos_em_comum}</td></tr>`).join("")}</table>`
+      : `<p class="vazio">Nenhum amigo de amigo para sugerir.</p>`;
+  } catch (e) { $("#parceiros").innerHTML = `<p class="vazio">${esc(e.message)}</p>`; }
+}
+$("#p-tipo").onchange = carregarParceiros;
+
+// ---------- painel ----------
+async function carregarPainel() {
+  api("/metricas").then((m) => {
+    const itens = [["tentativas", "Tentativas"], ["barradas_no_lock", "Barradas no lock"], ["barradas_na_cota", "Barradas na cota"],
+                   ["rejeitadas_na_lwt", "Rejeitadas na LWT"], ["confirmadas", "Confirmadas"], ["canceladas", "Canceladas"], ["falhas_no_grafo", "Falhas no grafo"]];
+    $("#metricas").innerHTML = itens.map(([k, r]) => `<div class="metrica"><b>${m[k] || 0}</b><span class="mini">${r}</span></div>`).join("");
+  }).catch((e) => aviso(e.message, "erro"));
+  carregarRanking();
+  api("/espacos/resumo").then((r) => {
+    $("#resumo").innerHTML = `<table><tr><th>Unidade</th><th>Tipo</th><th>Espaços</th><th>Capacidade</th></tr>${
+      r.por_tipo.map((g) => `<tr><td>${g.unidade_id}</td><td>${esc(ROTULO_TIPO[g.tipo] || g.tipo)}</td><td>${g.espacos}</td>
+        <td>${g.capacidade_total || "—"}</td></tr>`).join("")}</table>
+      <div class="chips" style="margin-top:8px">${r.modalidades.map((m) => `<span class="chip">${esc(m.modalidade)} · ${m.espacos}</span>`).join("")}</div>`;
+  }).catch((e) => aviso(e.message, "erro"));
+}
+
+async function carregarRanking() {
+  try {
+    const r = await api(`/unidades/${$("#r-unidade").value}/ranking`);
+    $("#ranking").innerHTML = r.length
+      ? `<table><tr><th>#</th><th>Espaço</th><th>Reservas</th></tr>${r.map((x, i) =>
+          `<tr><td>${i + 1}</td><td>${esc(nomeEspaco(x.espaco_id))}</td><td>${x.reservas}</td></tr>`).join("")}</table>`
+      : `<p class="vazio">Nenhuma reserva nesta unidade ainda.</p>`;
+  } catch (e) { aviso(e.message, "erro"); }
+}
+$("#r-unidade").onchange = carregarRanking;
+
+$("#btn-relatorio").onclick = async () => {
+  const el = $("#relatorio");
+  try {
+    const r = await api(`/unidades/${$("#rel-unidade").value}/relatorio?mes=${$("#rel-mes").value}`);
+    const pct = (x) => `${(x * 100).toFixed(1)}%`;
+    el.innerHTML = `<div class="metricas" style="margin-bottom:12px">
+        <div class="metrica"><b>${r.total_reservas}</b><span class="mini">Reservas</span></div>
+        <div class="metrica"><b>${r.total_canceladas}</b><span class="mini">Canceladas</span></div>
+        <div class="metrica"><b>${pct(r.taxa_ocupacao_unidade)}</b><span class="mini">Ocupação</span></div>
+        <div class="metrica"><b>${pct(r.taxa_cancelamento_unidade)}</b><span class="mini">Cancelamento</span></div></div>
+      <table><tr><th>Espaço</th><th>Reservas</th><th>Ativas</th><th>Canceladas</th><th>Ocupação</th><th>Cancelamento</th></tr>${
+        r.espacos.map((e) => `<tr><td>${esc(e.nome)}</td><td>${e.total_reservas}</td><td>${e.ativas}</td><td>${e.canceladas}</td>
+          <td>${pct(e.taxa_ocupacao)}</td><td>${pct(e.taxa_cancelamento)}</td></tr>`).join("")}</table>
+      <p class="mini">A ocupação considera todos os slots do mês, inclusive dias que ainda não abriram na agenda.</p>`;
+  } catch (e) { el.innerHTML = `<p class="vazio">${esc(e.message)}</p>`; }
+};
+
+// ---------- início ----------
+async function iniciar() {
+  desenharSessao();
+  $("#g-data").value = somaDias(hoje(), 1);
+  $("#g-data").min = hoje(); $("#g-data").max = somaDias(hoje(), 7);  // RN02: agenda de 7 dias
+  $("#g-data").onchange = carregarGrade;
+  $("#rel-mes").value = hoje().slice(0, 7);
+  $("#btn-buscar").onclick = buscarEspacos;
+  try {
+    espacos = await api("/espacos");
+    const unidades = [...new Set(espacos.map((e) => e.unidade_id))].sort((a, b) => a - b);
+    const opcoes = unidades.map((u) => `<option value="${u}">Unidade ${u}</option>`).join("");
+    $("#f-unidade").insertAdjacentHTML("beforeend", opcoes);
+    $("#r-unidade").innerHTML = opcoes; $("#rel-unidade").innerHTML = opcoes;
+    $("#lista-espacos").innerHTML = espacos.map(cartaoEspaco).join("");
+  } catch (e) { aviso("Não foi possível carregar o catálogo: " + e.message, "erro"); }
+}
+iniciar();
+</script>
+</body>
+</html>
