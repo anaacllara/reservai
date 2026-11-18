@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, time as dt_time, timedelta
 
 import httpx
 import pytest
@@ -144,7 +144,7 @@ def test_fluxo_reserva_real(http, redis_client, cassandra_session, neo4j_driver)
 
     # 2. Validação no Redis Real
     # Lock já deve estar liberado
-    lock_chave = chaves.lock_slot(3, date.fromisoformat(AMANHA), time(14, 0))
+    lock_chave = chaves.lock_slot(3, date.fromisoformat(AMANHA), dt_time(14, 0))
     assert not redis_client.exists(lock_chave)
     # Cota consumida
     cota_chave = chaves.reservas_ativas(842)
@@ -227,10 +227,16 @@ def test_cancelamento_real_libera_slot_e_cota(http, redis_client, cassandra_sess
     assert re_reserva.status_code == 201
 
     # 3. Neo4j: nó da reserva cancelada removido
-    time.sleep(0.5)
+    # A remoção roda em thread separada (fila_grafo); aguarda até 3s com polling ativo.
+    deadline = time.monotonic() + 3.0
+    res = object()  # sentinela não-None
     with neo4j_driver.session() as s:
-        res = s.run("MATCH (r:Reserva {id: $rid}) RETURN r", rid=reserva_id).single()
-        assert res is None
+        while time.monotonic() < deadline:
+            res = s.run("MATCH (r:Reserva {id: $rid}) RETURN r", rid=reserva_id).single()
+            if res is None:
+                break
+            time.sleep(0.1)
+    assert res is None, "Nó da reserva cancelada não foi removido do Neo4j após 3s"
 
 
 def test_historico_mantem_canceladas_conforme_rn05(http):
@@ -250,14 +256,16 @@ def test_historico_mantem_canceladas_conforme_rn05(http):
 
 def test_relatorio_unidade_real(http):
     """Valida agregação do relatório da unidade calculada sobre a partição Cassandra e catálogo."""
-    headers = autenticar(http, 842)
+    # /unidades/{id}/relatorio requer perfil admin (exigir_admin). Usuário 1 = Administração.
+    headers_aluno = autenticar(http, 842)
+    headers_admin = autenticar(http, 1)
     mes = AMANHA[:7]  # AAAA-MM
 
-    http.post("/reservas", json={"espaco_id": 3, "data": AMANHA, "horario": "11:00"}, headers=headers)
-    http.post("/reservas", json={"espaco_id": 3, "data": AMANHA, "horario": "12:00"}, headers=headers)
-    http.delete(f"/espacos/3/reservas/{AMANHA}/12:00", headers=headers)
+    http.post("/reservas", json={"espaco_id": 3, "data": AMANHA, "horario": "11:00"}, headers=headers_aluno)
+    http.post("/reservas", json={"espaco_id": 3, "data": AMANHA, "horario": "12:00"}, headers=headers_aluno)
+    http.delete(f"/espacos/3/reservas/{AMANHA}/12:00", headers=headers_aluno)
 
-    resp = http.get("/unidades/1/relatorio", params={"mes": mes}, headers=headers)
+    resp = http.get("/unidades/1/relatorio", params={"mes": mes}, headers=headers_admin)
     assert resp.status_code == 200
     rel = resp.json()
 
