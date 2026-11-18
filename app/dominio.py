@@ -37,6 +37,32 @@ class Reserva:
         return replace(self, status="cancelada")
 
 
+@dataclass(frozen=True)
+class MetricasEspaco:
+    espaco_id: int
+    nome: str
+    tipo: str
+    total_reservas: int
+    ativas: int
+    canceladas: int
+    taxa_cancelamento: float
+    slots_disponiveis_mes: int
+    taxa_ocupacao: float
+
+
+@dataclass(frozen=True)
+class RelatorioUnidade:
+    unidade_id: int
+    ano_mes: str
+    total_reservas: int
+    total_ativas: int
+    total_canceladas: int
+    taxa_cancelamento_unidade: float
+    taxa_ocupacao_unidade: float
+    espacos: list[MetricasEspaco]
+    reservas: list[Reserva]
+
+
 class ErroReserva(Exception):
     status_http = 400
 

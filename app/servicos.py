@@ -4,6 +4,7 @@ O serviço só conhece interfaces (RepositorioReservas, CatalogoEspacos, GrafoRe
 e um cliente Redis, o que permite testá-lo com fakes, sem subir Cassandra, Mongo nem Neo4j.
 """
 
+import calendar
 import logging
 from collections.abc import Callable, Iterable
 from datetime import date, datetime, time, timedelta
@@ -23,7 +24,9 @@ from app.dominio import (
     GrafoRelacionamentos,
     HorarioInvalido,
     LimiteReservasAtingido,
+    MetricasEspaco,
     ParticipantesInvalidos,
+    RelatorioUnidade,
     RepositorioReservas,
     Reserva,
     ReservaNaoEncontrada,
@@ -187,6 +190,56 @@ class ServicoReservas:
 
     def ocupacao_unidade(self, unidade_id: int, ano_mes: str) -> list[Reserva]:
         return self.repo.reservas_da_unidade(unidade_id, ano_mes)
+
+    def relatorio_unidade(self, unidade_id: int, ano_mes: str) -> RelatorioUnidade:
+        """RF05: reservas da unidade no mês agregadas com taxa de ocupação e cancelamento por espaço."""
+        ano, mes = map(int, ano_mes.split("-"))
+        _, dias_no_mes = calendar.monthrange(ano, mes)
+        reservas = self.repo.reservas_da_unidade(unidade_id, ano_mes)
+        espacos_unidade = self.catalogo.listar(unidade_id)
+
+        metricas_espacos: list[MetricasEspaco] = []
+        for e in espacos_unidade:
+            total_espaco = sum(1 for r in reservas if r.espaco_id == e.id)
+            ativas_espaco = sum(1 for r in reservas if r.espaco_id == e.id and r.status == "ativa")
+            canceladas_espaco = sum(1 for r in reservas if r.espaco_id == e.id and r.status == "cancelada")
+            slots_dia = max(0, e.fechamento - e.abertura)
+            slots_mes = slots_dia * dias_no_mes
+            taxa_canc = round(canceladas_espaco / total_espaco, 4) if total_espaco > 0 else 0.0
+            taxa_ocup = round(ativas_espaco / slots_mes, 4) if slots_mes > 0 else 0.0
+
+            metricas_espacos.append(
+                MetricasEspaco(
+                    espaco_id=e.id,
+                    nome=e.nome,
+                    tipo=e.tipo,
+                    total_reservas=total_espaco,
+                    ativas=ativas_espaco,
+                    canceladas=canceladas_espaco,
+                    taxa_cancelamento=taxa_canc,
+                    slots_disponiveis_mes=slots_mes,
+                    taxa_ocupacao=taxa_ocup,
+                )
+            )
+
+        total_reservas = len(reservas)
+        total_ativas = sum(1 for r in reservas if r.status == "ativa")
+        total_canceladas = sum(1 for r in reservas if r.status == "cancelada")
+        slots_unidade = sum(m.slots_disponiveis_mes for m in metricas_espacos)
+        taxa_canc_unidade = round(total_canceladas / total_reservas, 4) if total_reservas > 0 else 0.0
+        taxa_ocup_unidade = round(total_ativas / slots_unidade, 4) if slots_unidade > 0 else 0.0
+
+        return RelatorioUnidade(
+            unidade_id=unidade_id,
+            ano_mes=ano_mes,
+            total_reservas=total_reservas,
+            total_ativas=total_ativas,
+            total_canceladas=total_canceladas,
+            taxa_cancelamento_unidade=taxa_canc_unidade,
+            taxa_ocupacao_unidade=taxa_ocup_unidade,
+            espacos=metricas_espacos,
+            reservas=reservas,
+        )
 
     def ranking(self, unidade_id: int, top: int = 10) -> list[tuple[int, int]]:
         itens = self.redis.zrevrange(chaves.ranking(unidade_id), 0, top - 1, withscores=True)
