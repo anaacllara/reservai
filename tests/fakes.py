@@ -9,10 +9,12 @@ O RepositorioFake reproduz a semântica que importa do Cassandra:
 import threading
 from datetime import date, time
 
-from app.dominio import Espaco, Reserva
+from app.dominio import Espaco, FiltroEspacos, Reserva
 
 
 class CatalogoFake:
+    """Mesma semântica da consulta e da pipeline de app/repositorios/mongo.py."""
+
     def __init__(self, espacos: list[Espaco]):
         self.espacos = {e.id: e for e in espacos}
 
@@ -20,7 +22,47 @@ class CatalogoFake:
         return self.espacos.get(espaco_id)
 
     def listar(self, unidade_id: int | None = None) -> list[Espaco]:
-        return [e for e in self.espacos.values() if unidade_id in (None, e.unidade_id)]
+        return self.buscar(FiltroEspacos(unidade_id=unidade_id))
+
+    @staticmethod
+    def _casa(e: Espaco, f: FiltroEspacos) -> bool:
+        a = e.atributos
+        modalidades = a.get("modalidades", [])
+        cap = a.get("capacidade")
+        return (
+            f.unidade_id in (None, e.unidade_id)
+            and f.tipo in (None, e.tipo)
+            # $gte: campo ausente não casa
+            and (f.capacidade_min is None or (cap is not None and cap >= f.capacidade_min))
+            # igualdade com array: casa com qualquer elemento
+            and (f.modalidade is None or f.modalidade in modalidades)
+            and all(a.get(r) is True for r in f.recursos)
+        )
+
+    def buscar(self, filtro: FiltroEspacos) -> list[Espaco]:
+        return [e for _, e in sorted(self.espacos.items()) if self._casa(e, filtro)]
+
+    def resumo(self, unidade_id: int | None = None) -> dict:
+        espacos = self.listar(unidade_id)
+        grupos: dict[tuple, dict] = {}
+        for e in espacos:
+            g = grupos.setdefault(
+                (e.unidade_id, e.tipo),
+                {"unidade_id": e.unidade_id, "tipo": e.tipo, "espacos": 0, "capacidade_total": 0, "nomes": []},
+            )
+            g["espacos"] += 1
+            g["capacidade_total"] += e.atributos.get("capacidade", 0)
+            g["nomes"].append(e.nome)
+        contagem: dict[str, int] = {}
+        for e in espacos:
+            for m in e.atributos.get("modalidades", []):
+                contagem[m] = contagem.get(m, 0) + 1
+        return {
+            "por_tipo": [grupos[k] for k in sorted(grupos)],
+            "modalidades": [
+                {"modalidade": m, "espacos": n} for m, n in sorted(contagem.items(), key=lambda x: (-x[1], x[0]))
+            ],
+        }
 
 
 class RepositorioFake:

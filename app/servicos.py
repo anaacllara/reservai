@@ -26,6 +26,7 @@ from app.dominio import (
     LimiteReservasAtingido,
     MetricasEspaco,
     ParticipantesInvalidos,
+    RegraDoEspacoViolada,
     RelatorioUnidade,
     RepositorioReservas,
     Reserva,
@@ -88,6 +89,8 @@ class ServicoReservas:
             criado_em=self._agora(),
             participantes=self._normalizar_participantes(usuario_id, participantes),
         )
+        # Regras do catálogo (Mongo) antes do lock: uma reserva inválida não disputa o slot.
+        self._validar_regras(espaco, reserva)
         self._metrica("tentativas")
 
         # Passo 1a: lock do slot. É filtro de desempenho, não a garantia (Marco 1, 3.4):
@@ -273,6 +276,22 @@ class ServicoReservas:
         if len(unicos) > self.cfg.max_participantes:
             raise ParticipantesInvalidos(f"No máximo {self.cfg.max_participantes} participantes por reserva.")
         return tuple(sorted(unicos))
+
+    def _validar_regras(self, espaco: Espaco, reserva: Reserva) -> None:
+        """RN08: regras estruturadas do documento do espaço."""
+        pessoas = 1 + len(reserva.participantes)
+        for regra in espaco.regras:
+            if regra.get("tipo") == "min_participantes" and pessoas < regra["valor"]:
+                raise RegraDoEspacoViolada(
+                    f"{espaco.nome}: {regra.get('descricao', 'mínimo de participantes')}. "
+                    f"A reserva tem {pessoas} pessoa(s), contando você."
+                )
+            # Outros tipos ("informativa" ou desconhecidos) não bloqueiam a reserva.
+        capacidade = espaco.atributos.get("capacidade")
+        if capacidade is not None and pessoas > capacidade:
+            raise RegraDoEspacoViolada(
+                f"{espaco.nome} comporta {capacidade} pessoas. A reserva tem {pessoas}, contando você."
+            )
 
     def _no_grafo(self, operacao: Callable, *args) -> None:
         # O grafo é uma projeção (AP, best-effort): se o Neo4j falhar, a reserva já está
