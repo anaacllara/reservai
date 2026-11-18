@@ -26,6 +26,8 @@ class Reserva:
     horario: time
     status: str  # "ativa" | "cancelada"
     criado_em: datetime | None  # reservas_por_unidade não guarda este campo
+    # Outros usuários que vão usar o espaço junto com o dono (o dono não entra aqui).
+    participantes: tuple[int, ...] = ()
 
     @property
     def ano_mes(self) -> str:
@@ -51,12 +53,20 @@ class HorarioInvalido(ErroReserva):
     status_http = 422
 
 
+class ParticipantesInvalidos(ErroReserva):
+    status_http = 422
+
+
 class SlotIndisponivel(ErroReserva):
     status_http = 409
 
 
 class LimiteReservasAtingido(ErroReserva):
     status_http = 409
+
+
+class GrafoIndisponivel(ErroReserva):
+    status_http = 503
 
 
 class RepositorioReservas(Protocol):
@@ -77,3 +87,18 @@ class CatalogoEspacos(Protocol):
 
     def obter(self, espaco_id: int) -> Espaco | None: ...
     def listar(self, unidade_id: int | None = None) -> list[Espaco]: ...
+
+
+class GrafoRelacionamentos(Protocol):
+    """Camada Grafos (Neo4j). Implementação real em app/repositorios/grafo.py.
+
+    É uma projeção das reservas para consultas de travessia (recomendação e parceiros).
+    A fonte de verdade continua no Cassandra: o grafo pode ser reconstruído a partir dele.
+    """
+
+    def registrar_reserva(self, reserva: Reserva, espaco: Espaco) -> None: ...
+    def remover_reserva(self, reserva: Reserva) -> None: ...
+    def recomendar_espacos(self, usuario_id: int, limite: int) -> list[tuple[int, int]]: ...
+    def sugerir_parceiros(
+        self, usuario_id: int, tipo: str | None, limite: int
+    ) -> list[tuple[int, int]]: ...

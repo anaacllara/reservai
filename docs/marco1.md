@@ -16,6 +16,8 @@ sharding e replicação) está no PDF e será revisada na documentação final d
 | RF05 | Histórico de reservas por unidade (painel administrativo) | `GET /unidades/{id}/relatorio?mes=AAAA-MM` |
 | RF06 | No máximo 2 reservas futuras ativas por usuário | script `app/lua/reservar_cota.lua` |
 | RF07 | Ranking dos espaços mais reservados por unidade | `GET /unidades/{id}/ranking` |
+| RF08 | Recomendar espaços usados por quem divide espaços com o usuário (Marco 2) | `GET /usuarios/{id}/recomendacoes` |
+| RF09 | Sugerir parceiros: amigos de amigos com quem o usuário nunca dividiu reserva, com filtro opcional por tipo de espaço (Marco 2) | `GET /usuarios/{id}/parceiros?tipo=` |
 
 ## 2. Regras de negócio
 
@@ -26,6 +28,7 @@ sharding e replicação) está no PDF e será revisada na documentação final d
 | RN03 | Uma reserva conta na cota do usuário até o horário de início; depois disso, libera a vaga da cota. |
 | RN04 | Só o dono cancela, e apenas antes do horário de início. |
 | RN05 | Reserva cancelada continua no histórico do usuário e da unidade com `status = 'cancelada'`. |
+| RN06 | Uma reserva pode ter até `max_participantes` (30) participantes além do dono. Duplicatas e o próprio dono são ignorados. Participantes não consomem a cota (RN03 vale só para o dono). |
 
 ## 3. Modelo de dados
 
@@ -49,12 +52,35 @@ Schema completo em [`schema/cassandra.cql`](../schema/cassandra.cql).
 | `reservas_por_usuario` | `usuario_id` | `data_reserva DESC, horario DESC, reserva_id` | B: histórico do usuário. |
 | `reservas_por_unidade` | `(unidade_id, ano_mes)` | `data_reserva, espaco_id, horario, reserva_id` | C: ocupação mensal da unidade. |
 
+As três tabelas têm a coluna `participantes set<int>` (Marco 2). O Cassandra continua sendo a
+fonte de verdade da reserva completa; o grafo (3.4) é uma projeção que pode ser reconstruída a partir dele.
+
 Consistência por operação: LWT (`SERIAL` + `QUORUM`) na ocupação, que é CP; `ONE` no histórico, no painel e no cache, que é AP.
 
 ### 3.3 MongoDB (Documentos) — catálogo
 
 Coleção `espacos`. Atributos e regras variam por tipo de espaço (quadra, sala de estudo,
 sala de reunião), o que justifica o esquema flexível. Seed em [`schema/mongo-seed.js`](../schema/mongo-seed.js).
+
+### 3.4 Neo4j (Grafos) — relacionamentos
+
+Implementação em [`app/repositorios/grafo.py`](../app/repositorios/grafo.py).
+
+```text
+(:Usuario)-[:RESERVOU]->(:Reserva)-[:EM]->(:Espaco)-[:FICA_EM]->(:Unidade)
+(:Usuario)-[:PARTICIPOU]->(:Reserva)
+```
+
+- A reserva é um **nó**, e não uma aresta com contador: ela liga N pessoas ao mesmo evento,
+  a escrita é idempotente (`MERGE` pelo id) e o cancelamento é um `DETACH DELETE`.
+- Restrições de unicidade em `id` para os quatro rótulos (também servem de índice para o ponto de partida das travessias).
+- Só reservas ativas ficam no grafo; canceladas continuam no histórico do Cassandra.
+- RF08 é filtragem colaborativa em 2 saltos; RF09 é "amigos de amigos" (um amigo é quem já dividiu uma reserva com o usuário).
+- Consistência: **AP / best-effort**. A projeção roda numa fila em segundo plano com uma única thread
+  (preserva a ordem registrar → remover) e não atrasa nem desfaz a reserva. Se o Neo4j cair, a reserva
+  continua funcionando, a falha é contada em `metricas:reservas.falhas_no_grafo` e as rotas de RF08/RF09 respondem **503**.
+- Limitação conhecida: reservas confirmadas com o Neo4j fora do ar não entram no grafo. A correção é um
+  script de reconstrução a partir de `reservas_por_unidade` (pendente).
 
 ## 4. Fluxos
 
@@ -64,12 +90,14 @@ sala de reunião), o que justifica o esquema flexível. Seed em [`schema/mongo-s
 3. Cassandra: `INSERT ... IF NOT EXISTS` em `reservas_por_espaco`. Se `[applied] = false` ou se houver erro, devolve a cota (`ZREM`) e retorna **409** ou propaga o erro.
 4. Cassandra: BATCH logged em `reservas_por_usuario` e `reservas_por_unidade`.
 5. Redis: marca o slot como `ocupado` no cache (se ele existir), `ZINCRBY` no ranking e libera o lock (sempre, em `finally`).
+6. Neo4j: projeta a reserva no grafo, em segundo plano, depois de liberar o lock (não alonga a disputa pelo slot).
 
 ### Cancelamento (RF03)
 1. Cassandra: lê a ocupação com `SERIAL`. A leitura é necessária porque o `reserva_id` faz parte da PK do histórico.
 2. Cassandra: `DELETE ... IF usuario_id = ? AND reserva_id = ?`.
 3. Cassandra: BATCH logged com `status = 'cancelada'` nas duas tabelas de histórico.
 4. Redis: `ZREM` na cota e marca o slot como `livre` no cache.
+5. Neo4j: remove o nó da reserva, em segundo plano.
 
 ## 5. Correções em relação ao PDF do Marco 1
 

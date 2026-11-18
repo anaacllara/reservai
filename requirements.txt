@@ -4,4 +4,5 @@ pydantic-settings==2.7.1
 redis==5.2.1
 cassandra-driver==3.29.2
 pymongo==4.10.1
+neo4j==5.27.0
 tzdata==2024.2

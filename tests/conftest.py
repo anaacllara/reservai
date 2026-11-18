@@ -7,7 +7,7 @@ import pytest
 from app.config import Settings
 from app.dominio import Espaco
 from app.servicos import ServicoReservas
-from tests.fakes import CatalogoFake, RepositorioFake
+from tests.fakes import CatalogoFake, GrafoFake, RepositorioFake
 
 FUSO = ZoneInfo("America/Sao_Paulo")
 # Segunda-feira, 12/10/2026, 10h: a agenda está aberta até 19/10.
@@ -49,5 +49,10 @@ def catalogo():
 
 
 @pytest.fixture
-def servico(redis, repo, catalogo, relogio):
-    return ServicoReservas(redis, repo, catalogo, Settings(_env_file=None), agora=relogio)
+def grafo():
+    return GrafoFake()
+
+
+@pytest.fixture
+def servico(redis, repo, catalogo, grafo, relogio):
+    return ServicoReservas(redis, repo, catalogo, grafo, Settings(_env_file=None), agora=relogio)

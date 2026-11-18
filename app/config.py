@@ -11,12 +11,16 @@ class Settings(BaseSettings):
     cassandra_keyspace: str = "reservai"
     mongo_url: str = "mongodb://localhost:27017"
     mongo_db: str = "reservai"
+    neo4j_url: str = "bolt://localhost:7687"
+    neo4j_usuario: str = "neo4j"
+    neo4j_senha: str = "reservai-dev"  # só para desenvolvimento local (docker-compose.yml)
 
     fuso: str = "America/Sao_Paulo"
     lock_ttl_s: int = 30  # Marco 1, 2.2a
     cache_disponibilidade_ttl_s: int = 300  # Marco 1, 2.2b
     limite_reservas_ativas: int = 2  # RF06
     dias_agenda_aberta: int = 7  # Marco 1, 1.3
+    max_participantes: int = 30  # RN06
 
 
 @lru_cache
