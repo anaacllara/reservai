@@ -274,3 +274,10 @@ def test_relatorio_exige_admin(client):
 def test_ranking_continua_publico(client):
     # Agregado, sem dado pessoal: pode aparecer na tela inicial sem login.
     assert client.get("/unidades/1/ranking").status_code == 200
+
+
+def test_front_da_demo_e_servido_na_raiz(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "Reserv" in resp.text

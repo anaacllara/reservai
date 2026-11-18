@@ -1,10 +1,12 @@
 import re
 import secrets
 from dataclasses import asdict
+from pathlib import Path
 from datetime import date, datetime, time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.auth import (
@@ -99,6 +101,15 @@ class RelatorioUnidadeOut(BaseModel):
     taxa_ocupacao_unidade: float
     espacos: list[MetricasEspacoRelatorio]
     reservas: list[ReservaOut]
+
+
+_FRONT = Path(__file__).parent / "static" / "index.html"
+
+
+@router.get("/", include_in_schema=False)
+def front():
+    """Front mínimo da demo (#6): uma página estática que consome esta mesma API."""
+    return FileResponse(_FRONT, media_type="text/html; charset=utf-8")
 
 
 @router.get("/health")
