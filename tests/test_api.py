@@ -13,7 +13,7 @@ def client(servico, catalogo):
 
 
 def auth(client: TestClient, usuario_id: int = 842) -> dict[str, str]:
-    resp = client.post("/auth/login", json={"usuario_id": usuario_id})
+    resp = client.post("/auth/login", json={"usuario_id": usuario_id, "senha": "senha123"})
     assert resp.status_code == 200
     token = resp.json()["token"]
     return {"Authorization": f"Bearer {token}"}
@@ -32,7 +32,7 @@ def test_reservar_e_consultar(client):
     grade = client.get("/espacos/1/disponibilidade", params={"data": "2026-10-13"}).json()["grade"]
     assert grade["19:00"] == "ocupado"
 
-    historico = client.get("/usuarios/842/reservas").json()
+    historico = client.get("/usuarios/842/reservas", headers=headers).json()
     assert len(historico) == 1
 
 
@@ -66,7 +66,8 @@ def test_cancelar(client):
 
 def test_painel_da_unidade_e_ranking(client):
     client.post("/reservas", json=SLOT, headers=auth(client, 842))
-    relatorio = client.get("/unidades/1/relatorio", params={"mes": "2026-10"}).json()
+    admin = auth(client, 1)
+    relatorio = client.get("/unidades/1/relatorio", params={"mes": "2026-10"}, headers=admin).json()
 
     assert relatorio["unidade_id"] == 1
     assert relatorio["ano_mes"] == "2026-10"
@@ -87,7 +88,7 @@ def test_painel_da_unidade_e_ranking(client):
     assert len(relatorio["reservas"]) == 1
 
     assert client.get("/unidades/1/ranking").json() == [{"espaco_id": 1, "reservas": 1}]
-    assert client.get("/unidades/1/relatorio", params={"mes": "out/26"}).status_code == 422
+    assert client.get("/unidades/1/relatorio", params={"mes": "out/26"}, headers=admin).status_code == 422
 
 
 def test_reserva_com_participantes_e_consultas_do_grafo(client):
@@ -104,11 +105,11 @@ def test_reserva_com_participantes_e_consultas_do_grafo(client):
         headers=headers_900,
     )
 
-    recs = client.get("/usuarios/842/recomendacoes").json()
+    recs = client.get("/usuarios/842/recomendacoes", headers=headers_842).json()
     assert recs == [
         {"espaco_id": 7, "nome": "Sala de Reunião Ipê", "tipo": "sala_reuniao", "unidade_id": 3, "pessoas_em_comum": 1}
     ]
-    assert client.get("/usuarios/842/parceiros", params={"tipo": "quadra"}).json() == []
+    assert client.get("/usuarios/842/parceiros", params={"tipo": "quadra"}, headers=headers_842).json() == []
 
 
 def test_reserva_sem_participantes_mantem_contrato_antigo(client):
@@ -126,9 +127,10 @@ def test_participantes_demais_retorna_422(client):
 
 def test_grafo_fora_do_ar_retorna_503(client, grafo):
     grafo.falhar = True
-    assert client.post("/reservas", json=SLOT, headers=auth(client, 842)).status_code == 201
-    assert client.get("/usuarios/842/recomendacoes").status_code == 503
-    assert client.get("/usuarios/842/parceiros").status_code == 503
+    headers = auth(client, 842)
+    assert client.post("/reservas", json=SLOT, headers=headers).status_code == 201
+    assert client.get("/usuarios/842/recomendacoes", headers=headers).status_code == 503
+    assert client.get("/usuarios/842/parceiros", headers=headers).status_code == 503
 
 
 def test_catalogo(client):
@@ -187,7 +189,7 @@ def test_usuario_a_nao_consegue_cancelar_reserva_do_usuario_b(client, repo):
 
 def test_renovacao_automatica_ttl_sessao_no_redis(client, servico):
     # Login cria sessão com TTL de 3600 s
-    resp = client.post("/auth/login", json={"usuario_id": 842})
+    resp = client.post("/auth/login", json={"usuario_id": 842, "senha": "senha123"})
     assert resp.status_code == 200
     token = resp.json()["token"]
     chave = chaves.sessao(token)
@@ -233,5 +235,49 @@ def test_login_credenciais_invalidas(client):
     assert resp.json()["detail"] == "Credenciais inválidas."
 
     # Usuário inválido / inexistente
-    resp = client.post("/auth/login", json={"usuario_id": -10})
+    resp = client.post("/auth/login", json={"usuario_id": -10, "senha": "senha123"})
     assert resp.status_code == 401
+
+
+def test_login_sem_senha_e_rejeitado(client):
+    assert client.post("/auth/login", json={"usuario_id": 842}).status_code == 422
+
+
+# ---- controle de acesso às rotas de leitura --------------------------
+
+
+@pytest.mark.parametrize("rota", ["reservas", "recomendacoes", "parceiros"])
+def test_dados_pessoais_exigem_token(client, rota):
+    assert client.get(f"/usuarios/842/{rota}").status_code == 401
+
+
+@pytest.mark.parametrize("rota", ["reservas", "recomendacoes", "parceiros"])
+def test_usuario_nao_ve_dados_pessoais_de_outro(client, rota):
+    resp = client.get(f"/usuarios/842/{rota}", headers=auth(client, 900))
+    assert resp.status_code == 403
+
+
+def test_admin_ve_dados_de_qualquer_usuario(client):
+    client.post("/reservas", json=SLOT, headers=auth(client, 842))
+    resp = client.get("/usuarios/842/reservas", headers=auth(client, 1))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_relatorio_exige_admin(client):
+    params = {"mes": "2026-10"}
+    assert client.get("/unidades/1/relatorio", params=params).status_code == 401
+    assert client.get("/unidades/1/relatorio", params=params, headers=auth(client, 842)).status_code == 403
+    assert client.get("/unidades/1/relatorio", params=params, headers=auth(client, 1)).status_code == 200
+
+
+def test_ranking_continua_publico(client):
+    # Agregado, sem dado pessoal: pode aparecer na tela inicial sem login.
+    assert client.get("/unidades/1/ranking").status_code == 200
+
+
+def test_front_da_demo_e_servido_na_raiz(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "Reserv" in resp.text

@@ -12,8 +12,19 @@ class Espaco:
     tipo: str
     abertura: int  # hora cheia, ex.: 8
     fechamento: int  # hora cheia exclusiva, ex.: 20 (último slot 19:00)
-    atributos: dict
-    regras: list[str]
+    atributos: dict  # variam por tipo (ex.: modalidades em quadras, capacidade em salas)
+    regras: list[dict]  # documentos {tipo, valor?, descricao}; ver RN08
+
+
+@dataclass(frozen=True)
+class FiltroEspacos:
+    """Busca no catálogo (RF10). Cada campo vazio é ignorado."""
+
+    unidade_id: int | None = None
+    tipo: str | None = None
+    capacidade_min: int | None = None  # só casa com espaços que declaram capacidade
+    modalidade: str | None = None  # elemento de atributos.modalidades
+    recursos: tuple[str, ...] = ()  # atributos booleanos exigidos, ex.: ("videoconferencia",)
 
 
 @dataclass(frozen=True)
@@ -83,6 +94,10 @@ class ParticipantesInvalidos(ErroReserva):
     status_http = 422
 
 
+class RegraDoEspacoViolada(ErroReserva):
+    status_http = 422
+
+
 class SlotIndisponivel(ErroReserva):
     status_http = 409
 
@@ -113,6 +128,8 @@ class CatalogoEspacos(Protocol):
 
     def obter(self, espaco_id: int) -> Espaco | None: ...
     def listar(self, unidade_id: int | None = None) -> list[Espaco]: ...
+    def buscar(self, filtro: FiltroEspacos) -> list[Espaco]: ...
+    def resumo(self, unidade_id: int | None = None) -> dict: ...
 
 
 class GrafoRelacionamentos(Protocol):

@@ -18,6 +18,8 @@ sharding e replicação) está no PDF e será revisada na documentação final d
 | RF07 | Ranking dos espaços mais reservados por unidade | `GET /unidades/{id}/ranking` |
 | RF08 | Recomendar espaços usados por quem divide espaços com o usuário (Marco 2) | `GET /usuarios/{id}/recomendacoes` |
 | RF09 | Sugerir parceiros: amigos de amigos com quem o usuário nunca dividiu reserva, com filtro opcional por tipo de espaço (Marco 2) | `GET /usuarios/{id}/parceiros?tipo=` |
+| RF10 | Buscar espaços por qualquer atributo do tipo: capacidade mínima, modalidade, recursos booleanos (Marco 2) | `GET /espacos?tipo=&capacidade_min=&modalidade=&recursos=` |
+| RF11 | Resumo do catálogo: espaços por unidade e tipo, capacidade somada e modalidades oferecidas (Marco 2) | `GET /espacos/resumo` (aggregation pipeline) |
 
 ## 2. Regras de negócio
 
@@ -29,6 +31,8 @@ sharding e replicação) está no PDF e será revisada na documentação final d
 | RN04 | Só o dono cancela, e apenas antes do horário de início. |
 | RN05 | Reserva cancelada continua no histórico do usuário e da unidade com `status = 'cancelada'`. |
 | RN06 | Uma reserva pode ter até `max_participantes` (30) participantes além do dono. Duplicatas e o próprio dono são ignorados. Participantes não consomem a cota (RN03 vale só para o dono). |
+| RN07 | Controle de acesso: reservar e cancelar exigem sessão (`Authorization: Bearer`), e o `usuario_id` vem sempre do token. Histórico, recomendações e parceiros (RF04, RF08, RF09) só podem ser consultados pelo próprio usuário ou pelo perfil `admin` (**403** caso contrário). O relatório da unidade (RF05) é restrito ao `admin`. Disponibilidade, catálogo e ranking são públicos (não expõem dados pessoais). |
+| RN08 | Regras do espaço vêm do documento no Mongo e são validadas **antes do lock** (uma reserva inválida não disputa o slot nem consome a cota): `min_participantes` exige dono + participantes ≥ `valor`; se o espaço declara `atributos.capacidade`, o total de pessoas não pode passar dela. Regras `informativa` e tipos desconhecidos não bloqueiam. Violação → **422** com a descrição da regra. |
 
 ## 3. Modelo de dados
 
@@ -62,6 +66,29 @@ Consistência por operação: LWT (`SERIAL` + `QUORUM`) na ocupação, que é CP
 
 Coleção `espacos`. Atributos e regras variam por tipo de espaço (quadra, sala de estudo,
 sala de reunião), o que justifica o esquema flexível. Seed em [`schema/mongo-seed.js`](../schema/mongo-seed.js).
+
+```js
+{ _id: 1, unidade_id: 1, nome: "Quadra Poliesportiva", tipo: "quadra",
+  funcionamento: { abertura: 8, fechamento: 20 },
+  atributos: { modalidades: ["futsal", "vôlei", "basquete"], coberta: true, iluminacao: true },
+  regras: [ { tipo: "min_participantes", valor: 6, descricao: "Mínimo de 6 jogadores" },
+            { tipo: "informativa", descricao: "Calçado adequado obrigatório" } ] }
+
+{ _id: 7, unidade_id: 3, nome: "Sala de Reunião Ipê", tipo: "sala_reuniao", ...,
+  atributos: { capacidade: 12, videoconferencia: true, projetor: true, cafe_incluso: true }, ... }
+```
+
+- **Busca (RF10)**: um único `find` com filtros sobre atributos que só existem em alguns tipos
+  (`atributos.capacidade: {$gte}`, igualdade em array para `atributos.modalidades`, `atributos.<recurso>: true`).
+  Nomes de recurso são validados (`^[a-z][a-z0-9_]*$`) para não virarem operadores do Mongo.
+- **Índices**: `{unidade_id, tipo}` e um índice curinga `{"atributos.$**": 1}`, que cobre consultas em
+  qualquer atributo, inclusive os de tipos de espaço que ainda não existem.
+- **Resumo (RF11)**: aggregation pipeline `$match → $sort → $facet` com duas visões numa ida ao banco:
+  `$group` por unidade e tipo, e `$unwind` + `$group` das modalidades.
+- **Regras como documentos (RN08)**: `{tipo, valor?, descricao}`. Um tipo de regra novo é só um documento
+  com outro `tipo`, sem migração de schema; versões da API que não o conhecem o ignoram.
+- Volumes criados antes do Marco 2 têm regras em texto livre; a leitura as converte para `informativa`.
+  Para o seed novo (com `min_participantes`), recrie o volume: `docker compose down -v`.
 
 ### 3.4 Neo4j (Grafos) — relacionamentos
 

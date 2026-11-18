@@ -26,26 +26,37 @@ def main() -> None:
     p.add_argument("--data", default=(date.today() + timedelta(days=1)).isoformat())
     p.add_argument("--horario", default="19:00")
     p.add_argument("--usuario-inicial", type=int, default=10_000)
+    p.add_argument("--senha", default="senha123")  # senha de demonstração (app/auth.py)
+    # A Quadra Poliesportiva exige 6 jogadores (RN08): cada tentativa leva 5 participantes + o dono.
+    p.add_argument("--participantes", type=int, default=5)
     args = p.parse_args()
 
     with httpx.Client(base_url=args.url, timeout=30) as http:
         antes = http.get("/metricas").json()
 
-        def tentar(usuario_id: int) -> int:
-            login_resp = http.post("/auth/login", json={"usuario_id": usuario_id})
-            if login_resp.status_code != 200:
-                return login_resp.status_code
-            token = login_resp.json()["token"]
-            corpo = {"espaco_id": args.espaco, "data": args.data, "horario": args.horario}
-            return http.post(
-                "/reservas", json=corpo, headers={"Authorization": f"Bearer {token}"}
-            ).status_code
+        def login(usuario_id: int) -> str:
+            resp = http.post("/auth/login", json={"usuario_id": usuario_id, "senha": args.senha})
+            resp.raise_for_status()
+            return resp.json()["token"]
+
+        corpo = {
+            "espaco_id": args.espaco,
+            "data": args.data,
+            "horario": args.horario,
+            "participantes": list(range(9_000_001, 9_000_001 + args.participantes)),
+        }
+
+        def tentar(token: str) -> int:
+            return http.post("/reservas", json=corpo, headers={"Authorization": f"Bearer {token}"}).status_code
 
         usuarios = range(args.usuario_inicial, args.usuario_inicial + args.tentativas)
-        inicio = time.perf_counter()
         with ThreadPoolExecutor(max_workers=min(args.tentativas, 100)) as pool:
-            status = Counter(pool.map(tentar, usuarios))
-        duracao = time.perf_counter() - inicio
+            # Todos fazem login ANTES da rajada: no pico real os usuários já estão logados
+            # esperando a agenda abrir, e o login não pode diluir a disputa pelo slot.
+            tokens = list(pool.map(login, usuarios))
+            inicio = time.perf_counter()
+            status = Counter(pool.map(tentar, tokens))
+            duracao = time.perf_counter() - inicio
 
         depois = http.get("/metricas").json()
 
