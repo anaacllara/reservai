@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     fuso: str = "America/Sao_Paulo"
     lock_ttl_s: int = 30  # Marco 1, 2.2a
     cache_disponibilidade_ttl_s: int = 300  # Marco 1, 2.2b
+    sessao_ttl_s: int = 3600  # Issue #12 (sliding expiration)
     limite_reservas_ativas: int = 2  # RF06
     dias_agenda_aberta: int = 7  # Marco 1, 1.3
     max_participantes: int = 30  # RN06

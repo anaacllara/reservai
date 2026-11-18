@@ -5,6 +5,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
+from app.auth import (
+    SENHA_PADRAO,
+    UsuarioSessao,
+    criar_sessao,
+    encerrar_sessao,
+    localizar_usuario,
+    obter_usuario_autenticado,
+)
 from app.dominio import CatalogoEspacos, Reserva
 from app.servicos import ServicoReservas
 
@@ -19,9 +27,26 @@ def catalogo(request: Request) -> CatalogoEspacos:
     return request.app.state.catalogo
 
 
-class SlotIn(BaseModel):
-    # TODO(auth): usuario_id virá da sessão quando a autenticação existir.
+# ---- modelos de autenticação -------------------------------------------
+
+
+class LoginIn(BaseModel):
+    usuario_id: int | None = None
+    email: str | None = None
+    senha: str = SENHA_PADRAO
+
+
+class LoginOut(BaseModel):
+    token: str
+    token_type: str = "bearer"
     usuario_id: int
+    nome: str
+
+
+# ---- modelos de reservas -----------------------------------------------
+
+
+class SlotIn(BaseModel):
     espaco_id: int
     data: date
     horario: time
@@ -53,6 +78,30 @@ def health():
     return {"status": "ok"}
 
 
+# ---- autenticação (Redis) ---------------------------------------------
+
+
+@router.post("/auth/login", response_model=LoginOut)
+def login(dados: LoginIn, svc: ServicoReservas = Depends(servico)):
+    usuario = localizar_usuario(dados.usuario_id, dados.email)
+    if usuario is None or dados.senha != SENHA_PADRAO:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Credenciais inválidas.")
+    token = criar_sessao(svc.redis, usuario, svc.cfg.sessao_ttl_s)
+    return LoginOut(token=token, usuario_id=usuario["usuario_id"], nome=usuario["nome"])
+
+
+@router.post("/auth/logout")
+def logout(
+    request: Request,
+    usuario: UsuarioSessao = Depends(obter_usuario_autenticado),
+    svc: ServicoReservas = Depends(servico),
+):
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header.split(" ", 1)[1] if " " in auth_header else ""
+    encerrar_sessao(svc.redis, token)
+    return {"status": "ok"}
+
+
 # ---- catálogo (MongoDB) ------------------------------------------------
 
 
@@ -79,17 +128,25 @@ def disponibilidade(espaco_id: int, data: date, svc: ServicoReservas = Depends(s
 
 
 @router.post("/reservas", status_code=status.HTTP_201_CREATED, response_model=ReservaOut)
-def reservar(slot: ReservaIn, svc: ServicoReservas = Depends(servico)):
+def reservar(
+    slot: ReservaIn,
+    usuario: UsuarioSessao = Depends(obter_usuario_autenticado),
+    svc: ServicoReservas = Depends(servico),
+):
     """RF02 e RF06: reserva com lock (Redis), cota (Redis) e LWT (Cassandra); projeção no grafo."""
     return ReservaOut.de(
-        svc.reservar(slot.usuario_id, slot.espaco_id, slot.data, slot.horario, slot.participantes)
+        svc.reservar(usuario.usuario_id, slot.espaco_id, slot.data, slot.horario, slot.participantes)
     )
 
 
 @router.post("/reservas/cancelar", response_model=ReservaOut)
-def cancelar(slot: SlotIn, svc: ServicoReservas = Depends(servico)):
+def cancelar(
+    slot: SlotIn,
+    usuario: UsuarioSessao = Depends(obter_usuario_autenticado),
+    svc: ServicoReservas = Depends(servico),
+):
     """RF03: cancela e libera o horário."""
-    return ReservaOut.de(svc.cancelar(slot.usuario_id, slot.espaco_id, slot.data, slot.horario))
+    return ReservaOut.de(svc.cancelar(usuario.usuario_id, slot.espaco_id, slot.data, slot.horario))
 
 
 @router.get("/usuarios/{usuario_id}/reservas", response_model=list[ReservaOut])

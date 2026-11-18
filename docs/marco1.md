@@ -39,6 +39,7 @@ sharding e replicação) está no PDF e será revisada na documentação final d
 | `lock:slot:{espaco}:{data}:{HH:MM}` | String, `SET NX EX 30` | Lock do slot durante a decisão. Liberado por Lua só pelo dono. |
 | `disponibilidade:espaco:{espaco}:{data}` | Hash `HH:MM -> livre/ocupado`, TTL 300 s | Cache da grade (RF01). Não é fonte de verdade. |
 | `ativas:usuario:{usuario}` | Sorted Set, score = início do slot | Cota de reservas futuras (RF06). |
+| `sessao:{token}` | Hash `usuario_id, nome, email, perfil`, TTL 3600 s | Sessão de autenticação (Issue #12, sliding expiration). |
 | `ranking:espacos:unidade:{unidade}` | Sorted Set, `ZINCRBY` | Ranking (RF07). |
 | `metricas:reservas` | Hash de contadores | Onde cada tentativa parou (usado na demo). |
 
