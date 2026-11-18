@@ -30,6 +30,19 @@ coluna `participantes` existir no Cassandra (o schema só é criado em volume va
 O Neo4j Browser fica em **<http://localhost:7474>** (usuário `neo4j`, senha `reservai-dev`), útil para
 mostrar o grafo na apresentação: `MATCH p=(:Usuario)-[]->(:Reserva)-[:EM]->(:Espaco) RETURN p LIMIT 50`.
 
+## Autenticação (demonstração)
+
+As rotas que escrevem ou mostram dados pessoais pedem um token. Para obter um:
+
+```bash
+curl -X POST localhost:8000/auth/login -H "Content-Type: application/json"      -d '{"usuario_id": 842, "senha": "senha123"}'
+```
+
+Use o `token` devolvido no cabeçalho `Authorization: Bearer <token>` (no Swagger, botão **Authorize**).
+O usuário `1` tem perfil `admin` e acessa o relatório da unidade. É uma autenticação **de demonstração**:
+todos usam a mesma senha e qualquer `usuario_id` positivo é aceito. O que ela mostra é a sessão no Redis
+(Hash com TTL renovado a cada uso) e o `usuario_id` vindo do token, nunca do corpo da requisição.
+
 ## Demo: disputa por um slot
 
 Simula o pico de abertura da agenda: N usuários tentando o mesmo horário ao mesmo tempo.
