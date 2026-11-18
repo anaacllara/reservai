@@ -1,6 +1,8 @@
 -- Schema Wide-Column do Reservaí (Marco 1, seção 2.3).
 -- Desenvolvimento: SimpleStrategy com RF=1 (nó único).
 -- Produção (Marco 1, seção 3.4): NetworkTopologyStrategy com RF=3.
+-- Marco 2: coluna participantes (set<int>) nas três tabelas. Volumes criados antes
+-- disso precisam ser recriados (docker compose down -v).
 
 CREATE KEYSPACE IF NOT EXISTS reservai
   WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
@@ -18,6 +20,7 @@ CREATE TABLE IF NOT EXISTS reservas_por_espaco (
   usuario_id   int,
   unidade_id   int,
   criado_em    timestamp,
+  participantes set<int>,
   PRIMARY KEY ((espaco_id, data_reserva), horario)
 ) WITH CLUSTERING ORDER BY (horario ASC);
 
@@ -31,6 +34,7 @@ CREATE TABLE IF NOT EXISTS reservas_por_usuario (
   unidade_id   int,
   status       text,
   criado_em    timestamp,
+  participantes set<int>,
   PRIMARY KEY (usuario_id, data_reserva, horario, reserva_id)
 ) WITH CLUSTERING ORDER BY (data_reserva DESC, horario DESC, reserva_id ASC);
 
@@ -47,5 +51,6 @@ CREATE TABLE IF NOT EXISTS reservas_por_unidade (
   reserva_id   uuid,
   usuario_id   int,
   status       text,
+  participantes set<int>,
   PRIMARY KEY ((unidade_id, ano_mes), data_reserva, espaco_id, horario, reserva_id)
 ) WITH CLUSTERING ORDER BY (data_reserva ASC, espaco_id ASC, horario ASC, reserva_id ASC);

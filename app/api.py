@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.dominio import CatalogoEspacos, Reserva
 from app.servicos import ServicoReservas
@@ -27,6 +27,11 @@ class SlotIn(BaseModel):
     horario: time
 
 
+class ReservaIn(SlotIn):
+    # Outros usuários que vão usar o espaço junto. Alimentam o grafo (RF08, RF09).
+    participantes: list[int] = Field(default_factory=list, max_length=100)
+
+
 class ReservaOut(BaseModel):
     reserva_id: UUID
     usuario_id: int
@@ -36,6 +41,7 @@ class ReservaOut(BaseModel):
     horario: time
     status: str
     criado_em: datetime | None
+    participantes: list[int]
 
     @classmethod
     def de(cls, r: Reserva) -> "ReservaOut":
@@ -73,9 +79,11 @@ def disponibilidade(espaco_id: int, data: date, svc: ServicoReservas = Depends(s
 
 
 @router.post("/reservas", status_code=status.HTTP_201_CREATED, response_model=ReservaOut)
-def reservar(slot: SlotIn, svc: ServicoReservas = Depends(servico)):
-    """RF02 e RF06: reserva com lock (Redis), cota (Redis) e LWT (Cassandra)."""
-    return ReservaOut.de(svc.reservar(slot.usuario_id, slot.espaco_id, slot.data, slot.horario))
+def reservar(slot: ReservaIn, svc: ServicoReservas = Depends(servico)):
+    """RF02 e RF06: reserva com lock (Redis), cota (Redis) e LWT (Cassandra); projeção no grafo."""
+    return ReservaOut.de(
+        svc.reservar(slot.usuario_id, slot.espaco_id, slot.data, slot.horario, slot.participantes)
+    )
 
 
 @router.post("/reservas/cancelar", response_model=ReservaOut)
@@ -90,6 +98,33 @@ def reservas_do_usuario(
 ):
     """RF04: histórico do usuário, das mais recentes às mais antigas."""
     return [ReservaOut.de(r) for r in svc.historico_usuario(usuario_id, limite)]
+
+
+# ---- grafo (Neo4j) ----------------------------------------------------
+
+
+@router.get("/usuarios/{usuario_id}/recomendacoes")
+def recomendacoes(
+    usuario_id: int, limite: int = Query(5, ge=1, le=50), svc: ServicoReservas = Depends(servico)
+):
+    """RF08: espaços usados por quem divide espaços com o usuário e que ele ainda não usou."""
+    return [
+        {"espaco_id": e.id, "nome": e.nome, "tipo": e.tipo, "unidade_id": e.unidade_id, "pessoas_em_comum": n}
+        for e, n in svc.recomendacoes(usuario_id, limite)
+    ]
+
+
+@router.get("/usuarios/{usuario_id}/parceiros")
+def parceiros(
+    usuario_id: int,
+    tipo: str | None = Query(None, examples=["quadra"]),
+    limite: int = Query(5, ge=1, le=50),
+    svc: ServicoReservas = Depends(servico),
+):
+    """RF09: amigos de amigos com quem o usuário nunca dividiu um espaço (opcionalmente por tipo)."""
+    return [
+        {"usuario_id": u, "amigos_em_comum": n} for u, n in svc.parceiros(usuario_id, tipo, limite)
+    ]
 
 
 # ---- painel administrativo -------------------------------------------
